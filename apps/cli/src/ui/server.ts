@@ -90,11 +90,17 @@ export function createApiHandler(opts: ApiServerOptions): (req: Request) => Prom
           const target = typeof body.target === "string" ? [body.target] : undefined
           return json(await o.sync({ dryRun, targets: target }))
         }
+        if (p === "/api/hub" && req.method === "GET") {
+          return json(await o.hubStatus())
+        }
         if (p === "/api/hub/collect" && req.method === "POST") {
           return json(await o.hubCollect())
         }
         if (p === "/api/hub/sync" && req.method === "POST") {
           return json(await o.hubSync())
+        }
+        if (p === "/api/hub/sync-everything" && req.method === "POST") {
+          return json(await o.syncEverything())
         }
         return json({ error: `unknown API route: ${p}` }, 404)
       } catch (e) {
