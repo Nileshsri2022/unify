@@ -82,3 +82,44 @@ export function agentmemoryComposeLog(opts: Parameters<typeof agentmemoryDataDir
 export function agentmemoryComposeFile(opts: Parameters<typeof agentmemoryDataDir>[0]): string {
   return path.join(agentmemoryDataDir(opts), "compose", "worker-compose.yaml")
 }
+
+/**
+ * Where agentmemory keeps runtime metadata (engine-state.json, pid files):
+ * $AGENTMEMORY_RUNTIME_DIR, else <home>/.agentmemory — mirrors
+ * runtimeMetadataPath() in the package.
+ */
+export function agentmemoryRuntimeDir(opts: {
+  home: string
+  env?: NodeJS.ProcessEnv
+}): string {
+  const env = opts.env ?? process.env
+  const dir = env.AGENTMEMORY_RUNTIME_DIR
+  return dir && path.isAbsolute(dir) ? dir : path.join(opts.home, ".agentmemory")
+}
+
+/** agentmemory's own record of the running/attempted Compose engine. */
+export function agentmemoryEngineStateFile(opts: { home: string; env?: NodeJS.ProcessEnv }): string {
+  return path.join(agentmemoryRuntimeDir(opts), "engine-state.json")
+}
+
+/**
+ * Candidate Compose daemon logs, most authoritative first.
+ *
+ * The daemon log is NOT in the compose/ project directory: agentmemory starts
+ * `iii compose` with `logFile: ~/.agentmemory/compose-<restPort>.log`, and
+ * records that path in engine-state.json (a previous guess at
+ * `<dataDir>/compose/compose-daemon.log` does not exist on Windows — verified
+ * on a real machine).
+ */
+export function agentmemoryComposeLogCandidates(opts: {
+  home: string
+  restPort: number
+  env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+}): string[] {
+  return [
+    agentmemoryEngineStateFile(opts), // resolved to .logFile by the reader
+    path.join(agentmemoryRuntimeDir(opts), `compose-${opts.restPort}.log`),
+    path.join(agentmemoryDataDir(opts), "compose", "compose-daemon.log"),
+  ]
+}
