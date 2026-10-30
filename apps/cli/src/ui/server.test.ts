@@ -274,6 +274,22 @@ describe("POST /api/hub/*", () => {
     expect(Array.isArray(r.json.distributeSkills)).toBe(true)
     expect(Array.isArray(r.json.distributeMcp)).toBe(true)
   })
+
+  test("GET /api/hub returns the cached result saved by collect/sync", async () => {
+    const r = await api("GET", "/api/hub")
+    expect(r.status).toBe(200)
+    expect(r.json).toBeTruthy()
+    expect(r.json.at).toBeTruthy()
+    expect(r.json.collect.skills.some((x: any) => x.provider === "claude")).toBe(true)
+  })
+
+  test("sync-everything returns hub + skillshare results", async () => {
+    const r = await api("POST", "/api/hub/sync-everything", {})
+    expect(r.status).toBe(200)
+    expect(r.json.hub.collect).toBeTruthy()
+    expect(r.json.skillshare).toBeTruthy()
+    expect(r.json.skillshare.result.dryRun).toBe(false)
+  })
 })
 
 describe("error handling", () => {

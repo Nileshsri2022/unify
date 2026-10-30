@@ -1,4 +1,5 @@
 import { expandTilde } from "@unify/core"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
 import path from "node:path"
 import { DEFAULT_SKILL_PATHS, parseTargetList, resolveSkillshareBinary } from "../adapters/skillshare"
 import { realRunner } from "../adapters/runner"
@@ -47,12 +48,44 @@ export interface HubCollectResult {
   mcp: McpCollect[]
 }
 
+/**
+ * Last hub result, saved to disk so the dashboard can render the
+ * inventory instantly on open instead of rescanning on every visit.
+ * Stored at the hub root (a file, not a provider subdir), so
+ * distribute's directory-only readdir ignores it.
+ */
+export interface HubStatus {
+  at: string
+  collect: HubCollectResult
+  distributeSkills?: DistributeRow[]
+  distributeMcp?: McpDistributeRow[]
+}
+
+export function hubStatusPath(hub: string): string {
+  return path.join(hub, "last-hub.json")
+}
+
+export async function writeHubStatus(status: HubStatus): Promise<void> {
+  await mkdir(path.dirname(hubStatusPath(status.collect.hub)), { recursive: true })
+  await writeFile(hubStatusPath(status.collect.hub), JSON.stringify(status, null, 2) + "\n", "utf-8")
+}
+
+export async function readHubStatus(hub: string): Promise<HubStatus | null> {
+  try {
+    return JSON.parse(await readFile(hubStatusPath(hub), "utf-8")) as HubStatus
+  } catch {
+    return null
+  }
+}
+
 export async function hubCollect(userHome: string, home: string): Promise<HubCollectResult> {
   const hub = hubRoot(home)
   const targets = await skillTargets(userHome, home)
   const skills = await collectSkills(hub, targets)
   const mcp = await collectMcp(hub, userHome)
-  return { hub, skills, mcp }
+  const result = { hub, skills, mcp }
+  await writeHubStatus({ at: new Date().toISOString(), collect: result })
+  return result
 }
 
 export interface HubSyncResult {
@@ -67,5 +100,7 @@ export async function hubSync(userHome: string, home: string): Promise<HubSyncRe
   const targets = await skillTargets(userHome, home)
   const skillRows = await distributeSkills(hub, targets)
   const mcpRows = await distributeMcp(hub, userHome, mcpTargets(userHome))
-  return { collect, distributeSkills: skillRows, distributeMcp: mcpRows }
+  const result = { collect, distributeSkills: skillRows, distributeMcp: mcpRows }
+  await writeHubStatus({ at: new Date().toISOString(), collect, distributeSkills: skillRows, distributeMcp: mcpRows })
+  return result
 }

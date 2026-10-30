@@ -275,6 +275,28 @@ export class Orchestrator {
     return hubSync(this.userHome, this.unifyHome)
   }
 
+  /** Last saved hub result, or null if collect has never run. */
+  async hubStatus() {
+    const { readHubStatus } = await import("../global-hub/service")
+    const { hubRoot } = await import("../global-hub")
+    return readHubStatus(hubRoot(this.unifyHome))
+  }
+
+  /**
+   * Sync Everything (dashboard primary action): hubSync, then
+   * skillshare sync apply. A skillshare failure must not blank
+   * the hub result, so it is returned as skillshareError.
+   */
+  async syncEverything() {
+    const hub = await this.hubSync()
+    try {
+      const skillshare = await this.sync({ dryRun: false })
+      return { hub, skillshare }
+    } catch (e) {
+      return { hub, skillshareError: e instanceof Error ? e.message : String(e) }
+    }
+  }
+
   private async readLock() {
     const { readLock } = await import("../commands/state-io")
     return readLock(this.unifyHome)

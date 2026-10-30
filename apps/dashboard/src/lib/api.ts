@@ -136,6 +136,19 @@ export interface HubSyncResponse {
   distributeMcp: { provider: string; server: string; action: string }[]
 }
 
+export interface HubStatusResponse {
+  at: string
+  collect: HubCollectResponse
+  distributeSkills?: { provider: string; skill: string; action: string }[]
+  distributeMcp?: { provider: string; server: string; action: string }[]
+}
+
+export interface SyncEverythingResponse {
+  hub: HubSyncResponse
+  skillshare?: SyncResponse
+  skillshareError?: string
+}
+
 // ---- client ----------------------------------------------------------------
 
 export class ApiError extends Error {
@@ -193,10 +206,13 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ dryRun, target }),
     }),
+  hubStatus: () => request<HubStatusResponse | null>("/api/hub"),
   hubCollect: () =>
     request<HubCollectResponse>("/api/hub/collect", { method: "POST", body: JSON.stringify({}) }),
   hubSync: () =>
     request<HubSyncResponse>("/api/hub/sync", { method: "POST", body: JSON.stringify({}) }),
+  syncEverything: () =>
+    request<SyncEverythingResponse>("/api/hub/sync-everything", { method: "POST", body: JSON.stringify({}) }),
 }
 
 /** Human "2 min ago" from an ISO timestamp. */

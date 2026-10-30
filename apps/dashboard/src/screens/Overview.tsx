@@ -10,9 +10,10 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ago } from "@/lib/api"
+import { ago, api, type HubStatusResponse } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { status as mockStatus } from "@/data/mock"
+import { useEffect, useState } from "react"
 
 const backendDetail: Record<string, string> = {
   skillshare: "config distribution · 76+ targets",
@@ -50,6 +51,11 @@ export function Overview() {
   const { online, status: live, setScreen } = useLive()
   const liveOn = online === true && live !== null
   const s = liveOn ? live : null
+  const [hubStatus, setHubStatus] = useState<HubStatusResponse | null>(null)
+  useEffect(() => {
+    if (!liveOn) return
+    api.hubStatus().then(setHubStatus).catch(() => {})
+  }, [liveOn])
 
   // normalized target rows (live + demo share one shape for the table)
   const rows = s
@@ -194,6 +200,27 @@ export function Overview() {
                 </Card>
               ))}
 
+          {hubStatus && (
+            <Card>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between">
+                  <CardTitle className="text-base">Hub</CardTitle>
+                  <Button variant="ghost" size="sm" className="gap-1 text-muted-foreground" onClick={() => setScreen("hub")}>
+                    open hub
+                    <ArrowUpRight className="size-3.5" />
+                  </Button>
+                </div>
+              </CardHeader>
+              <CardContent>
+                <p className="text-sm">
+                  {hubStatus.collect.skills.length} providers ·{" "}
+                  {hubStatus.collect.skills.reduce((n, x) => n + x.skills.length, 0)} skills ·{" "}
+                  {hubStatus.collect.mcp.reduce((n, x) => n + x.servers.length, 0)} MCP servers
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">Last shared {ago(hubStatus.at)}</p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
     </div>

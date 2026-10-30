@@ -41,7 +41,7 @@ const nav: { id: ScreenId; label: string; icon: typeof Brain }[] = [
 const titles: Record<ScreenId, { title: string; sub: string }> = {
   overview: { title: "Overview", sub: "Your AI agent stack at a glance" },
   hub: { title: "Hub", sub: "Every provider's skills and MCP, in one place" },
-  sync: { title: "Sync", sub: "Distribute config to every tool" },
+  sync: { title: "Sync · skillshare only", sub: "Distribute the skillshare skill to every tool" },
   memory: { title: "Memory", sub: "What your agents learned from you" },
   profile: { title: "Profiles", sub: "work / personal contexts" },
   doctor: { title: "Doctor", sub: "Health of the whole stack" },
