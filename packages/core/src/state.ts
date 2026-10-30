@@ -61,7 +61,15 @@ export async function isFile(p: string): Promise<boolean> {
 }
 
 export function expandTilde(p: string, home: string): string {
-  if (p === "~") return home
-  if (p.startsWith("~/")) return path.join(home, p.slice(2))
+  if (p === "~" || p === "~/" || p === "~\\") return home
+  if (p.startsWith("~/") || p.startsWith("~\\")) {
+    // skillshare on Windows reports paths like ~\.config\opencode\skills,
+    // while POSIX reports ~/.claude/skills. Split on both separators so
+    // the result is correct on either OS — previously only "~/" was
+    // expanded, so every Windows backslash path was left literally
+    // starting with "~\" and never found on disk.
+    const parts = p.slice(2).split(/[\\/]/).filter(Boolean)
+    return path.join(home, ...parts)
+  }
   return p
 }
