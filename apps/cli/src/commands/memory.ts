@@ -9,10 +9,10 @@ import path from "node:path"
 import {
   AgentmemoryAdapter,
   agentmemoryCliPath,
-  agentmemoryEntryPath,
   DEFAULT_AGENTMEMORY_BASE,
-  ensureRunning,
+  engineInstallPath,
 } from "../adapters/agentmemory"
+import { memoryStartHints } from "./init"
 import { realRunner } from "../adapters/runner"
 
 /** Narrow citty's loose arg union down to string (or null). */
@@ -41,16 +41,18 @@ async function requireReady(
     process.exitCode = 1
     return null
   }
-  const base = process.env.AGENTMEMORY_URL || DEFAULT_AGENTMEMORY_BASE
-  const logFile = path.join(unifyHome, "state", "agentmemory-server.log")
   console.log("ensuring memory server is running …")
-  await ensureRunning({
-    cliPath: agentmemoryCliPath(unifyHome),
-    entryPath: agentmemoryEntryPath(unifyHome),
-    home: userHome,
-    baseUrl: base,
-    logFile,
-  })
+  // Single code path for startup (engine provisioning included) — this is what
+  // `unify init`, `unify ui` and `unify sync` glue use too.
+  try {
+    await a.ensureServer()
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.error(`unify memory: ${message.split("\n")[0]}`)
+    for (const line of memoryStartHints(message, engineInstallPath(userHome))) console.error(line)
+    process.exitCode = 1
+    return null
+  }
   return a
 }
 

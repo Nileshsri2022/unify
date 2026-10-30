@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { attemptInstall, skillshareInstallHints } from "./init"
+import { attemptInstall, memoryStartHints, skillshareInstallHints } from "./init"
 
 /**
  * `unify init` is the first command a new user runs. A failed backend install
@@ -58,5 +58,27 @@ describe("skillshareInstallHints", () => {
     const hints = skillshareInstallHints()
     expect(hints.join("\n")).toContain("github.com release assets")
     expect(hints.at(-1)).toContain("unify init")
+  })
+})
+
+describe("memoryStartHints", () => {
+  // the caller prints the cause (one line) itself — hints must not repeat it
+  test("points at the engine path and at the log tail", () => {
+    const hints = memoryStartHints(
+      "iii-engine is required by agentmemory but could not be installed: SHA-256 mismatch for iii-x86_64-pc-windows-msvc.zip: expected b80…, got 123…\nLog tail:\nSetup required\nInstall iii-engine",
+      "C:\\Users\\niles\\.agentmemory\\bin\\iii.exe",
+    )
+    const text = hints.join("\n")
+    expect(text).toContain("C:\\Users\\niles\\.agentmemory\\bin\\iii.exe")
+    expect(text).toContain("last log lines")
+    expect(text).toContain("skills still sync")
+    // no duplicated cause line, no multi-line dump inside one hint
+    expect(text).not.toContain("cause:")
+    expect(hints.every((h) => !h.startsWith("iii-engine is required"))).toBe(true)
+  })
+
+  test("works for a plain supervisor failure", () => {
+    const hints = memoryStartHints("agentmemory exited before it was ready (exit 1).", "/h/.agentmemory/bin/iii")
+    expect(hints.join("\n")).toContain("memory is unavailable until this is fixed")
   })
 })

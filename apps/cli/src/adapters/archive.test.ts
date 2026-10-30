@@ -7,7 +7,7 @@ import {
   readTarGzMember,
   readZipMember,
 } from "./archive"
-import { BIN, enc, makeTarGz, makeZip } from "../../../test/archives"
+import { BIN, enc, makeTarGz, makeZip } from "../../test/archives"
 
 /**
  * Extraction used to shell out to `unzip` / `tar`. Stock Windows has no

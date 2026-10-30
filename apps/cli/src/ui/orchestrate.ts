@@ -12,10 +12,25 @@ import {
 import path from "node:path"
 import { buildRegistry } from "../adapters/registry"
 import type { SkillshareAdapter } from "../adapters/skillshare"
-import type { AgentmemoryAdapter } from "../adapters/agentmemory"
+import { AgentmemoryStartError, type AgentmemoryAdapter } from "../adapters/agentmemory"
 import type { RecallResult } from "../adapters/agentmemory/client"
 import { AGENTS_MD_GLAUE_ACTION, runAgentsMdGlue } from "../glue"
 import { readLastSync, type LastSyncEntry } from "../commands/state-io"
+
+/**
+ * Memory startup failures are 503 (a dependency is unavailable), and the
+ * message is reduced to its cause — the dashboard shows `error` verbatim, so a
+ * 60-line engine dump would wreck the UI.
+ */
+function memoryUnavailable(e: unknown): Error {
+  const message = e instanceof Error ? e.message : String(e)
+  const cause = message.split("\n")[0]
+  const hint =
+    e instanceof AgentmemoryStartError && e.reason !== "start"
+      ? " (run `unify init` to install the pinned memory engine)"
+      : " (see ~/.unify/state/agentmemory-server.log)"
+  return Object.assign(new Error(`${cause}${hint}`), { status: 503 })
+}
 
 export interface OrchestratorOptions {
   /** Override the agentmemory base URL (tests / AGENTMEMORY_URL). */
@@ -190,7 +205,11 @@ export class Orchestrator {
     if (!(await am.detect()).installed) {
       throw Object.assign(new Error("agentmemory is not installed — run `unify init`"), { status: 503 })
     }
-    await am.ensureServer()
+    try {
+      await am.ensureServer()
+    } catch (e) {
+      throw memoryUnavailable(e)
+    }
     const results = await am.recall(q, limit, scope.namespace)
     return { profile: scope.profile, namespace: scope.namespace, results }
   }
@@ -202,7 +221,11 @@ export class Orchestrator {
     if (!(await am.detect()).installed) {
       throw Object.assign(new Error("agentmemory is not installed — run `unify init`"), { status: 503 })
     }
-    await am.ensureServer()
+    try {
+      await am.ensureServer()
+    } catch (e) {
+      throw memoryUnavailable(e)
+    }
     const id = await am.save(text, concepts, scope.namespace)
     return { id, profile: scope.profile }
   }
