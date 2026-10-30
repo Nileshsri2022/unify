@@ -7,15 +7,21 @@ import {
   useState,
   type ReactNode,
 } from "react"
-import { api, ApiError, type ProfilesResponse, type StatusResponse } from "./api"
+import { api, type ProfilesResponse, type StatusResponse } from "./api"
+import { classifyFailure, type LiveFailure } from "./live-state"
+
+export type { LiveFailure } from "./live-state"
 
 export type ScreenId = "overview" | "sync" | "memory" | "profile" | "doctor"
 
 interface LiveContextValue {
-  /** null = still probing, true = API live, false = demo (mock) mode */
+  /** null = still probing, true = API reachable, false = no API at all */
   online: boolean | null
   status: StatusResponse | null
   profiles: ProfilesResponse | null
+  /** Last failure; null when the last refresh was clean. */
+  failure: LiveFailure | null
+  /** Short human message for the last failure (null when healthy). */
   lastError: string | null
   refresh: () => Promise<void>
   switchProfile: (name: string) => Promise<boolean>
@@ -27,11 +33,14 @@ interface LiveContextValue {
 
 const LiveContext = createContext<LiveContextValue | null>(null)
 
+/** Poll cadence — also the retry cadence after the API comes up/down. */
+export const LIVE_POLL_MS = 30_000
+
 export function LiveProvider({ children }: { children: ReactNode }) {
   const [online, setOnline] = useState<boolean | null>(null)
   const [status, setStatus] = useState<StatusResponse | null>(null)
   const [profiles, setProfiles] = useState<ProfilesResponse | null>(null)
-  const [lastError, setLastError] = useState<string | null>(null)
+  const [failure, setFailure] = useState<LiveFailure | null>(null)
   const [screen, setScreen] = useState<ScreenId>("overview")
   const [search, setSearch] = useState("")
 
@@ -41,17 +50,24 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       setStatus(s)
       setProfiles(p)
       setOnline(true)
-      setLastError(null)
+      setFailure(null)
     } catch (e) {
-      setOnline(false)
-      setLastError(e instanceof ApiError ? e.message : String(e))
+      const { reachable, failure } = classifyFailure(e)
+      setOnline(reachable)
+      setFailure(failure)
+      if (!reachable) {
+        // server gone: stale data would be misleading
+        setStatus(null)
+        setProfiles(null)
+      }
     }
   }, [])
 
   useEffect(() => {
     void refresh()
     // status changes on sync/switch — poll lightly so the dashboard stays fresh
-    const t = setInterval(() => void refresh(), 30000)
+    // (and so it recovers by itself once `unify ui` is started or fixed)
+    const t = setInterval(() => void refresh(), LIVE_POLL_MS)
     return () => clearInterval(t)
   }, [refresh])
 
@@ -62,7 +78,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
         await refresh()
         return true
       } catch (e) {
-        setLastError(e instanceof ApiError ? e.message : String(e))
+        setFailure(classifyFailure(e).failure)
         return false
       }
     },
@@ -74,7 +90,8 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       online,
       status,
       profiles,
-      lastError,
+      failure,
+      lastError: failure?.message ?? null,
       refresh,
       switchProfile,
       screen,
@@ -82,7 +99,7 @@ export function LiveProvider({ children }: { children: ReactNode }) {
       search,
       setSearch,
     }),
-    [online, status, profiles, lastError, refresh, switchProfile, screen, search],
+    [online, status, profiles, failure, refresh, switchProfile, screen, search],
   )
 
   return <LiveContext.Provider value={value}>{children}</LiveContext.Provider>

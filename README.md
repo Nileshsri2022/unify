@@ -22,7 +22,7 @@ instead of re-implementing them.
 
 ```bash
 bun install
-bun test                 # unit tests (packages/core, apps/cli)
+bun test                 # unit tests (core, cli, dashboard lib helpers)
 bun run build:cli        # → apps/cli/dist/unify
 ./apps/cli/dist/unify version
 ```
@@ -51,7 +51,8 @@ unify doctor                          backend health + config issues
 unify memory save <text> [--concepts a,b]
                                       memory recall <query> [--limit n]
 unify profile [name]                  show active profile, or switch (work/personal)
-unify ui [--port n] [--api-only]      serve dashboard + JSON API on 127.0.0.1
+unify ui [--port n] [--host h] [--api-only]
+                                      serve dashboard + JSON API (loopback by default)
 unify version                         print version
 ```
 
@@ -63,6 +64,10 @@ is pinned + SHA256-verified under `~/.unify/backends/skillshare`.
 `unify ui` serves the dashboard **and** its JSON API on one 127.0.0.1 port
 (default 7420, `$UNIFY_UI_PORT` / `--port`). The UI and CLI share the same
 orchestrator, so what you see is what the CLI reports.
+
+The bind interface is loopback by default — the dashboard has no auth. Inside a
+container / remote sandbox, opt in explicitly with `--host 0.0.0.0` (or
+`$UNIFY_UI_HOST`).
 
 | Endpoint | Method | Purpose |
 | --- | --- | --- |
@@ -76,7 +81,9 @@ orchestrator, so what you see is what the CLI reports.
 Profile memory is isolated end-to-end: each profile is an agentmemory
 `agentId` namespace, so work recall never surfaces personal memories and
 vice-versa. If the API is unreachable the dashboard falls back to demo data
-with a visible banner — never silently.
+with a visible banner — never silently — and the banner names the real problem:
+**API offline** (no server on the port) and **API error** (server up, request
+failed, e.g. a backend that is not installed) are reported differently.
 
 ## Layout
 

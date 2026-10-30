@@ -7,6 +7,7 @@ import {
   Stethoscope,
   UserRound,
   Search,
+  ShieldAlert,
   WifiOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
@@ -24,7 +25,7 @@ import { Overview } from "@/screens/Overview"
 import { ProfileScreen } from "@/screens/Profile"
 import { Sync } from "@/screens/Sync"
 import { cn } from "@/lib/utils"
-import { LiveProvider, useLive, type ScreenId } from "@/lib/live"
+import { LIVE_POLL_MS, LiveProvider, useLive, type ScreenId } from "@/lib/live"
 
 const nav: { id: ScreenId; label: string; icon: typeof Brain }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
@@ -42,9 +43,15 @@ const titles: Record<ScreenId, { title: string; sub: string }> = {
   doctor: { title: "Doctor", sub: "Health of the whole stack" },
 }
 
+const retryHint = `retrying every ${Math.round(LIVE_POLL_MS / 1000)}s`
+
 function Shell() {
-  const { online, status, profiles, screen, setScreen, search, setSearch, switchProfile } = useLive()
+  const { online, status, profiles, failure, screen, setScreen, search, setSearch, switchProfile } =
+    useLive()
+  // live = API reachable. A reachable-but-erroring API is still "live" — it gets
+  // its own banner instead of the misleading demo-mode one.
   const live = online === true
+  const offline = online === false || failure?.kind === "offline"
 
   const onSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
     if (e.key === "Enter" && search.trim()) {
@@ -98,10 +105,15 @@ function Shell() {
                 <span className="size-1.5 rounded-full bg-emerald-500" />
                 live · {status?.status.profile ?? "…"} profile
               </>
-            ) : (
+            ) : offline ? (
               <>
                 <span className="size-1.5 rounded-full bg-amber-500" />
                 demo mode (API offline)
+              </>
+            ) : (
+              <>
+                <span className="size-1.5 rounded-full bg-red-500" />
+                live · API error
               </>
             )}
           </p>
@@ -164,14 +176,29 @@ function Shell() {
           </div>
         </header>
 
-        {/* demo banner */}
-        {online === false && (
-          <div className="flex items-center gap-2 border-b bg-amber-500/10 px-6 py-2 text-xs text-amber-800 dark:text-amber-300">
-            <WifiOff className="size-3.5" />
+        {/* demo banner — only when there is truly no API responding */}
+        {offline && (
+          <div className="flex items-start gap-2 border-b bg-amber-500/10 px-6 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <WifiOff className="mt-0.5 size-3.5 shrink-0" />
             <span>
               <strong>Demo mode</strong> — the unify API is offline, so this dashboard shows mock
-              data. Start it with <code className="rounded bg-muted px-1">unify ui</code> (then
-              reload).
+              data. Start it with <code className="rounded bg-muted px-1">unify ui</code>{" "}
+              <span className="opacity-80">({retryHint}, no reload needed)</span>.
+            </span>
+          </div>
+        )}
+
+        {/* the API is up but returned an error — show it instead of blaming "offline" */}
+        {!offline && failure?.kind === "api" && (
+          <div className="flex items-start gap-2 border-b bg-red-500/10 px-6 py-2 text-xs text-red-800 dark:text-red-300">
+            <ShieldAlert className="mt-0.5 size-3.5 shrink-0" />
+            <span>
+              <strong>API error {failure.status}</strong> — {failure.message}
+              <span className="opacity-80">
+                {" "}
+                · the dashboard falls back to mock data where the API failed. Fix it with{" "}
+                <code className="rounded bg-muted px-1">unify doctor</code>, then {retryHint}.
+              </span>
             </span>
           </div>
         )}

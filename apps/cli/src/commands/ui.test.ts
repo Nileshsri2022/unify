@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { findBun, findDashboardDir, resolveDistDir, resolvePort } from "./ui"
+import { findBun, findDashboardDir, resolveDistDir, resolveHost, resolvePort } from "./ui"
 
 function fakeRepo(): string {
   const repo = mkdtempSync(path.join(tmpdir(), "unify-repo-"))
@@ -22,6 +22,14 @@ describe("ui helpers", () => {
     expect(resolvePort("not-a-number", {})).toBe(7420)
     expect(resolvePort("70000", {})).toBe(7420)
     expect(resolvePort("0", {})).toBe(7420)
+  })
+
+  test("resolveHost: loopback by default, flag/env opt in to exposing it", () => {
+    expect(resolveHost(undefined, {})).toBe("127.0.0.1")
+    expect(resolveHost(undefined, { UNIFY_UI_HOST: "0.0.0.0" })).toBe("0.0.0.0")
+    expect(resolveHost("0.0.0.0", {})).toBe("0.0.0.0")
+    expect(resolveHost("192.168.1.9", { UNIFY_UI_HOST: "0.0.0.0" })).toBe("192.168.1.9")
+    expect(resolveHost("  ", {})).toBe("127.0.0.1")
   })
 
   test("resolveDistDir: env override wins", () => {

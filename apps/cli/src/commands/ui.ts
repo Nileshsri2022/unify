@@ -10,6 +10,7 @@ import { createApiHandler } from "../ui/server"
  *   unify ui                 # default port 7420 (or $UNIFY_UI_PORT)
  *   unify ui --port 8080
  *   unify ui --api-only      # skip static serving (vite dev workflow)
+ *   unify ui --host 0.0.0.0  # non-loopback bind (containers, remote sandboxes)
  *
  * Works from source (`bun apps/cli/src/index.ts ui`) and from the compiled
  * binary (`apps/cli/dist/unify ui` — import.meta.dir is virtual there, so the
@@ -26,6 +27,11 @@ const uiArgs: ArgsDef = {
   "api-only": {
     type: "boolean",
     description: "API only — no static dashboard (pair with `vite dev`)",
+    required: false,
+  },
+  host: {
+    type: "string",
+    description: "Interface to bind (default 127.0.0.1, or $UNIFY_UI_HOST)",
     required: false,
   },
 }
@@ -85,6 +91,16 @@ export function resolvePort(flag: string | undefined, env: NodeJS.ProcessEnv = p
   return Number.isInteger(n) && n > 0 && n < 65536 ? n : 7420
 }
 
+/**
+ * Bind interface. Loopback by default (local-first, per DESIGN §11): the
+ * dashboard has no auth, so exposing it is an explicit opt-in — containers and
+ * remote sandboxes need `--host 0.0.0.0` (or $UNIFY_UI_HOST) to be reachable.
+ */
+export function resolveHost(flag: string | undefined, env: NodeJS.ProcessEnv = process.env): string {
+  const raw = (flag ?? env.UNIFY_UI_HOST ?? "").trim()
+  return raw.length > 0 ? raw : "127.0.0.1"
+}
+
 /** Find the bun executable (process.execPath is the unify binary when compiled). */
 export function findBun(execPath: string = process.execPath): string | null {
   if (path.basename(execPath) === "bun") return execPath
@@ -102,6 +118,7 @@ export function findBun(execPath: string = process.execPath): string | null {
 
 export async function runUi(args: Record<string, unknown>): Promise<number> {
   const port = resolvePort(args.port as string | undefined)
+  const host = resolveHost(args.host as string | undefined)
   const apiOnly = Boolean(args["api-only"])
   const env = process.env
   const userHome = env.HOME ?? "/root"
@@ -157,12 +174,15 @@ export async function runUi(args: Record<string, unknown>): Promise<number> {
   })
 
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: host,
     port,
     fetch: (req) => handler(req),
   })
 
-  console.log(`unify ui: dashboard + API on http://127.0.0.1:${server.port}`)
+  console.log(`unify ui: dashboard + API on http://${host}:${server.port}`)
+  if (host !== "127.0.0.1" && host !== "localhost") {
+    console.log(`  bound to ${host} — reachable from outside this machine (no auth)`)
+  }
   console.log("  stop with Ctrl-C")
 
   let stopping = false
