@@ -12,7 +12,12 @@ import { readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { buildRegistry } from "../adapters/registry"
-import { detectInstalledTools, pinnedManifest, SkillshareAdapter } from "../adapters/skillshare"
+import {
+  detectInstalledTools,
+  pinnedManifest,
+  skillshareBinName,
+  SkillshareAdapter,
+} from "../adapters/skillshare"
 import { AgentmemoryAdapter } from "../adapters/agentmemory"
 import { AGENTS_MD_TEMPLATE } from "../glue"
 import { readLock, renderSync, writeLastSync, writeLock } from "./state-io"
@@ -110,6 +115,8 @@ export const initCommand = defineCommand({
     console.log(`profile "${config.profile}": skillshare targets = ${desiredTargets.join(", ") || "(none)"}`)
 
     // 3. Ensure pinned backend binary
+    // The registry resolves the binary per call, so a binary installed below is
+    // picked up by the very next detect().
     const reg = await buildRegistry(userHome, home)
     const adapter = reg.get("skillshare") as SkillshareAdapter
     let det = await adapter.detect()
@@ -134,9 +141,16 @@ export const initCommand = defineCommand({
       det = await adapter.detect()
     }
     if (!det.installed) {
-      console.error(
-        "skillshare binary not found — install it or run `unify init` without --skip-install",
-      )
+      const expected = path.join(home, "backends", "skillshare", skillshareBinName())
+      if (args.skipInstall) {
+        console.error("unify init: skillshare not installed (--skip-install was passed)")
+        console.error(`  expected binary: ${expected}`)
+        console.error("  re-run without --skip-install, or set SKILLSHARE_BIN")
+      } else {
+        console.error("unify init: skillshare still not detected after installing")
+        console.error(`  expected binary: ${expected}`)
+        console.error("  re-run: unify init   (or set SKILLSHARE_BIN to an existing binary)")
+      }
       process.exitCode = 1
       return
     }

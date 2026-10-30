@@ -9,6 +9,7 @@ import path from "node:path"
 import {
   AgentmemoryAdapter,
   agentmemoryCliPath,
+  agentmemoryEntryPath,
   DEFAULT_AGENTMEMORY_BASE,
   ensureRunning,
 } from "../adapters/agentmemory"
@@ -29,19 +30,23 @@ function adapterFor(userHome: string, unifyHome: string): AgentmemoryAdapter {
   })
 }
 
-async function requireReady(userHome: string, unifyHome: string): Promise<AgentmemoryAdapter> {
+async function requireReady(
+  userHome: string,
+  unifyHome: string,
+): Promise<AgentmemoryAdapter | null> {
   const a = adapterFor(userHome, unifyHome)
   const det = await a.detect()
   if (!det.installed) {
     console.error("agentmemory is not installed — run `unify init` first.")
     process.exitCode = 1
-    return a
+    return null
   }
   const base = process.env.AGENTMEMORY_URL || DEFAULT_AGENTMEMORY_BASE
   const logFile = path.join(unifyHome, "state", "agentmemory-server.log")
   console.log("ensuring memory server is running …")
   await ensureRunning({
     cliPath: agentmemoryCliPath(unifyHome),
+    entryPath: agentmemoryEntryPath(unifyHome),
     home: userHome,
     baseUrl: base,
     logFile,
@@ -91,6 +96,7 @@ export const memoryCommand = defineCommand({
         const scope = await profileScope(uHome)
         if (!scope) return
         const a = await requireReady(home, uHome)
+        if (!a) return
         const concepts = (asString(args.concepts) ?? "")
           .split(",")
           .map((s) => s.trim())
@@ -117,6 +123,7 @@ export const memoryCommand = defineCommand({
         const scope = await profileScope(uHome)
         if (!scope) return
         const a = await requireReady(home, uHome)
+        if (!a) return
         const limit = asString(args.limit) ? Number(args.limit) : 10
         const results = await a.recall(query, limit, scope.namespace)
         if (results.length === 0) {
