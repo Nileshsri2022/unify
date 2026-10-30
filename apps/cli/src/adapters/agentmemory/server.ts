@@ -7,7 +7,7 @@
  * iii-engine, so the default timeout is generous (180s).
  */
 
-import { openSync, readFileSync } from "node:fs"
+import { openSync, readFileSync, statSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
 import { agentmemoryArgv } from "./command"
@@ -49,6 +49,11 @@ export async function ensureRunning(
   if (await probe(opts.baseUrl)) return { started: false }
 
   await mkdir(path.dirname(opts.logFile), { recursive: true })
+  // The log is append-only and shared across runs, so remember where this run
+  // starts: a "Could not start iii-engine" line from a *previous* attempt must
+  // never abort the current one (that false positive fired in ~1s and made a
+  // good start look failed).
+  const logOffset = sizeOf(opts.logFile)
   const logFd = openSync(opts.logFile, "a")
   const child = Bun.spawn(agentmemoryArgv(opts.cliPath, opts.entryPath), {
     env: { ...process.env, HOME: opts.home, ...(opts.env ?? {}) },
@@ -91,19 +96,22 @@ export async function ensureRunning(
       ])
       if (dead && !(await probe(opts.baseUrl))) {
         throw new Error(
-          `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile)}`.trim(),
+          `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile, 8, logOffset)}`.trim(),
         )
       }
       // The supervisor can also stay alive after giving up on a fatal problem
       // (agentmemory does this when iii-engine cannot start). Waiting out the
       // remaining minutes only delays a failure that is already on screen.
-      const fatal = fatalEngineLine(opts.logFile)
+      const fatal = fatalEngineLine(opts.logFile, logOffset)
       if (fatal) {
-        throw new Error(`agentmemory cannot start: ${fatal}. Log tail:\n${tailOf(opts.logFile)}`.trim())
+        const line = fatal.replace(/[.\s]+$/, "")
+        throw new Error(
+          `agentmemory cannot start: ${line}. Log tail:\n${tailOf(opts.logFile, 8, logOffset)}`.trim(),
+        )
       }
     }
     throw new Error(
-      `agentmemory server not ready within ${timeout}ms. Log tail:\n${tailOf(opts.logFile)}`.trim(),
+      `agentmemory server not ready within ${timeout}ms. Log tail:\n${tailOf(opts.logFile, 8, logOffset)}`.trim(),
     )
   } finally {
     // Reap the child on every failure path: a detached supervisor that keeps
@@ -118,15 +126,26 @@ export async function ensureRunning(
  * Returns the matching line (or null). Only unambiguous failures are listed —
  * a false positive would abort a start that was about to succeed.
  */
-export function fatalEngineLine(logFile: string): string | null {
+function sizeOf(file: string): number {
+  try {
+    return statSync(file).size
+  } catch {
+    return 0
+  }
+}
+
+export function fatalEngineLine(logFile: string, offset = 0): string | null {
   let text = ""
   try {
     text = readFileSync(logFile, "utf8")
   } catch {
     return null
   }
-  // only the tail matters: an old failure from a previous run must not abort
-  const recent = text.slice(-4000)
+  // Only what THIS run wrote counts. The log is append-only, so without the
+  // offset a stale failure from a previous run aborts a healthy start.
+  const fresh = offset > 0 ? text.slice(offset) : text
+  if (fresh.trim() === "") return null
+  const recent = fresh.slice(-4000)
   const patterns = [
     /Could not start iii-engine/i,
     /iii-engine could not be started/i,
@@ -145,14 +164,16 @@ export function fatalEngineLine(logFile: string): string | null {
  * 60-line decorated "Setup required" box; repeating all of it tells the user
  * nothing they can act on.
  */
-export function tailOf(logFile: string, lines = 8): string {
+export function tailOf(logFile: string, lines = 8, offset = 0): string {
   let text = ""
   try {
     text = readFileSync(logFile, "utf8")
   } catch {
     return "(no log)"
   }
-  const clean = text
+  const fresh = offset > 0 ? text.slice(offset) : text
+  if (fresh.trim() === "" && offset > 0) return "(no output from this run)"
+  const clean = fresh
     // box drawing / ANSI / cursor-control noise
     .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "")
     .replace(/[│◇◆├└┌┐┘─╭╮╰╯■▲●]/g, " ")

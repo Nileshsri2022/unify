@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { statSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
@@ -202,5 +203,59 @@ describe("tailOf / fatalEngineLine", () => {
     expect(fatalEngineLine(okay)).toBeNull()
 
     expect(fatalEngineLine(path.join(root, "absent.log"))).toBeNull()
+  })
+})
+
+/**
+ * Regression (reported on Windows): the log is append-only, so a
+ * "Could not start iii-engine" box left by an EARLIER run made the next start
+ * abort in ~1s before agentmemory had printed anything of its own — the user
+ * saw a failure quoting an old log. Only this run's bytes may count.
+ */
+describe("stale log content must not abort a fresh start", () => {
+  test("fatalEngineLine ignores lines written before the offset", async () => {
+    const logFile = path.join(root, "stale.log")
+    await writeFile(logFile, "■  Could not start iii-engine.\nSetup required\n")
+    const offset = statSync(logFile).size
+    expect(fatalEngineLine(logFile)).not.toBeNull() // no offset → sees it (legacy)
+    expect(fatalEngineLine(logFile, offset)).toBeNull() // this run wrote nothing
+
+    await writeFile(logFile, "worker ready\n", { flag: "a" })
+    expect(fatalEngineLine(logFile, offset)).toBeNull()
+  })
+
+  test("fatalEngineLine still catches a fatal line written by this run", async () => {
+    const logFile = path.join(root, "fresh.log")
+    await writeFile(logFile, "old box: Could not start iii-engine.\n")
+    const offset = statSync(logFile).size
+    await writeFile(logFile, "■  Could not start iii-engine.\n", { flag: "a" })
+    expect(fatalEngineLine(logFile, offset)).toContain("Could not start iii-engine")
+  })
+
+  test("tailOf with an offset only shows this run, and says so when empty", async () => {
+    const logFile = path.join(root, "tail-offset.log")
+    await writeFile(logFile, "old failure line\n")
+    const offset = statSync(logFile).size
+    expect(tailOf(logFile, 8, offset)).toBe("(no output from this run)")
+    await writeFile(logFile, "new line A\nnew line B\n", { flag: "a" })
+    const tail = tailOf(logFile, 8, offset)
+    expect(tail).toContain("new line B")
+    expect(tail).not.toContain("old failure line")
+  })
+
+  test("a stale fatal box does NOT stop a supervisor that starts fine", async () => {
+    const logFile = path.join(root, "stale-ok.log")
+    await writeFile(logFile, "■  Could not start iii-engine.\n")
+    // same fake supervisor the lifecycle tests use (it binds the shared port)
+    const r = await ensureRunning({
+      cliPath: cli,
+      home: root,
+      baseUrl: base,
+      logFile,
+      readyTimeoutMs: 15000,
+      env: { FAKE_STATE: stateDir },
+    })
+    expect(r.started).toBe(true)
+    await stop(cli, root, { FAKE_STATE: stateDir })
   })
 })
