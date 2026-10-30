@@ -184,7 +184,7 @@ describe("ensureState (already-initialized handling)", () => {
       if (key.startsWith("target add")) return { code: 0, stdout: "", stderr: "" }
       return { code: 1, stdout: "", stderr: `unhandled: ${key}` }
     }
-    const a = new SkillshareAdapter({ runner, home })
+    const a = new SkillshareAdapter({ runner, home, env: {}, platform: "linux" })
     const r = await a.ensureState(["claude"])
     expect(r.initialized).toBe(false) // it was already set up, we did not create it
     expect(r.added).toEqual(["claude"])
@@ -198,10 +198,30 @@ describe("ensureState (already-initialized handling)", () => {
       args[0] === "init"
         ? { code: 2, stdout: "", stderr: "✗ permission denied\n│ box line\n│ more box" }
         : { code: 0, stdout: "", stderr: "" }
-    const a = new SkillshareAdapter({ runner, home })
+    const a = new SkillshareAdapter({ runner, home, env: {}, platform: "linux" })
     const err = await a.ensureState(["claude"]).catch((e: Error) => e)
     expect(err).toBeInstanceOf(Error)
     expect((err as Error).message).toBe("skillshare init failed: ✗ permission denied")
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("$XDG_CONFIG_HOME is honoured (GitHub runners set it)", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-sh-init4-"))
+    const xdg = path.join(home, "xdg")
+    await mkdir(path.join(xdg, "skillshare"), { recursive: true })
+    await writeFile(path.join(xdg, "skillshare", "config.yaml"), "targets: {}\n")
+    const a = new SkillshareAdapter({
+      home,
+      env: {},
+      platform: "linux",
+      runner: async () => ({ code: 0, stdout: "", stderr: "" }),
+    })
+    expect(await a.isInitialized({}, "linux")).toBe(false)
+    expect(await a.isInitialized({ XDG_CONFIG_HOME: xdg }, "linux")).toBe(true)
+    expect(await a.isInitialized({ APPDATA: home }, "win32")).toBe(false) // no config.yaml there
+    await mkdir(path.join(home, "skillshare"), { recursive: true })
+    await writeFile(path.join(home, "skillshare", "config.yaml"), "targets: {}\n")
+    expect(await a.isInitialized({ APPDATA: home }, "win32")).toBe(true)
     await rm(home, { recursive: true, force: true })
   })
 
@@ -212,6 +232,8 @@ describe("ensureState (already-initialized handling)", () => {
     const calls: string[] = []
     const a = new SkillshareAdapter({
       home,
+      env: {},
+      platform: "linux",
       runner: async (args) => {
         calls.push(args.join(" "))
         return args[0] === "target"
@@ -219,7 +241,7 @@ describe("ensureState (already-initialized handling)", () => {
           : { code: 1, stdout: "", stderr: "should not run" }
       },
     })
-    expect(await a.isInitialized()).toBe(true)
+    expect(await a.isInitialized({}, "linux")).toBe(true) // {} = no $XDG_CONFIG_HOME
     const r = await a.ensureState([])
     expect(r.initialized).toBe(false)
     expect(calls).not.toContain("init --no-copy --all-targets")

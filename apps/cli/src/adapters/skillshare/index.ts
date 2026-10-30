@@ -33,6 +33,14 @@ export interface SkillshareAdapterDeps {
   binPath?: string
   /** Override source skills dir (default ~/.config/skillshare/skills). */
   sourceDir?: string
+  /**
+   * Env/platform used to locate skillshare's global config. Injectable so
+   * tests are not at the mercy of the ambient $XDG_CONFIG_HOME (GitHub
+   * runners set it; that made the config-discovery tests fail only on CI)
+   * and so win32 config paths can be exercised from any host.
+   */
+  env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
 }
 
 export interface SkillshareFullStatus {
@@ -270,9 +278,17 @@ export class SkillshareAdapter implements BackendAdapter {
    * global config in %APPDATA% on Windows, so a path guess alone cannot decide
    * this — and a second `unify init` used to die on that error.
    */
-  /** True when skillshare already has a global config in any known location. */
-  async isInitialized(): Promise<boolean> {
-    for (const p of skillshareConfigPaths(this.d.home)) {
+  /**
+   * True when skillshare already has a global config in any known location.
+   * `env`/`platform` are injectable so tests aren't at the mercy of the
+   * ambient $XDG_CONFIG_HOME (GitHub runners set it, which made the first
+   * version of these tests fail only on CI).
+   */
+  async isInitialized(
+    env: NodeJS.ProcessEnv = this.d.env ?? process.env,
+    platform: NodeJS.Platform = this.d.platform ?? process.platform,
+  ): Promise<boolean> {
+    for (const p of skillshareConfigPaths(this.d.home, env, platform)) {
       if (await isFile(p)) return true
     }
     return false
