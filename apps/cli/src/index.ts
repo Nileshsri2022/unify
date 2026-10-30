@@ -7,6 +7,8 @@ import { doctorCommand } from "./commands/doctor"
 import { memoryCommand } from "./commands/memory"
 import { profileCommand } from "./commands/profile"
 import { uiCommand } from "./commands/ui"
+import { discoverCommand } from "./commands/discover"
+import { importSkillCommand } from "./commands/import-skill"
 
 const main = defineCommand({
   meta: {
@@ -23,6 +25,8 @@ const main = defineCommand({
     memory: memoryCommand,
     profile: profileCommand,
     ui: uiCommand,
+    discover: discoverCommand,
+    "import-skill": importSkillCommand,
   },
   async run({ rawArgs }) {
     // citty invokes the parent run after a subcommand completes — only show
@@ -30,7 +34,7 @@ const main = defineCommand({
     const first = rawArgs.find((a) => !a.startsWith("-"))
     if (
       first &&
-      ["init", "status", "sync", "doctor", "memory", "profile", "ui", "version"].includes(first)
+      ["init", "status", "sync", "doctor", "memory", "profile", "ui", "version", "discover", "import-skill"].includes(first)
     )
       return
     console.log(
@@ -46,6 +50,8 @@ const main = defineCommand({
         "  memory    Save / recall persistent memory (agentmemory)",
         "  profile   Show or switch the active profile (work / personal)",
         "  ui        Serve the dashboard + JSON API on one local port",
+        "  discover  Read-only: list skills/MCPs found in every provider",
+        "  import-skill  Import one discovered skill into the shared source",
         "  version   Print unify version",
         "",
         "Run 'unify --help' for details.",
