@@ -3,7 +3,7 @@ import { statSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
+import { engineTrace, ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
 
 /**
  * Lifecycle tests use a FAKE agentmemory CLI: a bash supervisor that starts a
@@ -257,5 +257,37 @@ describe("stale log content must not abort a fresh start", () => {
     })
     expect(r.started).toBe(true)
     await stop(cli, root, { FAKE_STATE: stateDir })
+  })
+})
+
+describe("engineTrace", () => {
+  test("picks agentmemory's discovery lines out of a noisy log", async () => {
+    const logFile = path.join(root, "trace.log")
+    await writeFile(
+      logFile,
+      [
+        "\x1b[32magentmemory\x1b[0m v0.9.31",
+        "iii binary: (not on PATH)",
+        "fallback iii at C:\\Users\\n\\.agentmemory\\bin\\iii.exe reports version: 0.25.0",
+        "some unrelated chatter",
+        "iii on PATH is v0.24.0, pin is v0.25.0. Will install pinned engine to …",
+        "iii-engine could not be started.", // box text: not a discovery line
+        "iii binary: (not on PATH)", // duplicate, must collapse
+      ].join("\n"),
+    )
+    const t = engineTrace(logFile)
+    expect(t).toHaveLength(3)
+    expect(t[0]).toBe("iii binary: (not on PATH)")
+    expect(t[1]).toContain("reports version: 0.25.0")
+    expect(t[2]).toContain("pin is v0.25.0")
+  })
+
+  test("ignores everything written before this run's offset", async () => {
+    const logFile = path.join(root, "trace-offset.log")
+    await writeFile(logFile, "iii binary: OLD RUN\n")
+    const offset = statSync(logFile).size
+    expect(engineTrace(logFile, offset)).toEqual([])
+    await writeFile(logFile, "iii binary: (not on PATH)\n", { flag: "a" })
+    expect(engineTrace(logFile, offset)).toEqual(["iii binary: (not on PATH)"])
   })
 })
