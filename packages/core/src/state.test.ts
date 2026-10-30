@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { ensureHome, pathsFor, unifyHome } from "./state"
+import { ensureHome, expandTilde, pathsFor, unifyHome } from "./state"
 
 describe("state paths", () => {
   test("pathsFor resolves all paths under the given home", () => {
@@ -13,6 +13,16 @@ describe("state paths", () => {
     expect(p.lastSync).toBe("/tmp/u/state/last-sync.json")
     expect(p.backendsBin).toBe("/tmp/u/backends")
     expect(p.cache).toBe("/tmp/u/cache")
+  })
+
+  test("expandTilde handles forward-slash and Windows backslash tilde paths", () => {
+    expect(expandTilde("~/.claude/skills", "/home/u")).toBe("/home/u/.claude/skills")
+    // skillshare on Windows reports paths like ~\.config\opencode\skills
+    expect(expandTilde("~\\.config\\opencode\\skills", "/home/u")).toBe(
+      "/home/u/.config/opencode/skills",
+    )
+    expect(expandTilde("~", "/home/u")).toBe("/home/u")
+    expect(expandTilde("/absolute/path", "/home/u")).toBe("/absolute/path")
   })
 
   test("unifyHome respects UNIFY_HOME env, else ~/.unify", () => {
