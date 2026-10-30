@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { distributeMcp, distributeSkills } from "./distribute"
@@ -51,5 +51,22 @@ describe("global hub distribute", () => {
     expect(target.mcpServers.github.command).toBe("npx")
     expect(target.mcpServers.files.command).toBe("f")
     expect(mcp[0].action).toBe("merged")
+  })
+
+  test("legacy symlinked hub skill is distributed as a real copy, not a symlink", async () => {
+    const real = path.join(root, "real-linked")
+    await mkdir(real, { recursive: true })
+    await writeFile(path.join(real, "SKILL.md"), "# linked\n")
+    await symlink(real, path.join(hub, "claude", "skills", "linked"))
+    const destDir = path.join(root, "newprovider-skills")
+    await mkdir(destDir, { recursive: true })
+    const rows = await distributeSkills(hub, [
+      ...targets,
+      { tool: "newprovider", skillsPath: destDir },
+    ])
+    expect(rows.find((r) => r.provider === "newprovider" && r.skill === "linked")?.action).toBe("copied")
+    const dest = path.join(destDir, "linked")
+    expect((await lstat(dest)).isSymbolicLink()).toBe(false)
+    expect(await readFile(path.join(dest, "SKILL.md"), "utf-8")).toBe("# linked\n")
   })
 })

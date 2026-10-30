@@ -7,8 +7,31 @@
  * skipped and reported. Hub MCP files never contain secrets.
  */
 import path from "node:path"
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises"
+import { cp, lstat, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises"
 import { isDir } from "@unify/core"
+
+/**
+ * Copy a skill directory as a real copy, never as a symlink.
+ *
+ * Provider skills are often symlinks (skillshare links its skill into
+ * every provider). Plain `cp` copies the symlink itself, so the hub
+ * ends up pointing back at the source — and a second collect then
+ * fails with ERR_FS_CP_EINVAL, because src and dest resolve to the
+ * same folder. `dereference: true` copies the contents, and a
+ * pre-existing symlink dest (left by the old code) is removed first,
+ * because dereference alone still refuses a dest that resolves to src.
+ * This helper is hub-only: the dest is unify's own hub copy, never a
+ * provider's native skill, so removing its symlink cannot overwrite
+ * a provider's own work.
+ */
+export async function copySkillReal(src: string, dest: string): Promise<void> {
+  try {
+    if ((await lstat(dest)).isSymbolicLink()) await rm(dest, { force: true })
+  } catch {
+    // dest does not exist — nothing to remove
+  }
+  await cp(src, dest, { recursive: true, force: true, dereference: true })
+}
 import { MCP_CONFIGS } from "../discovery"
 import { hasSecretKey, stripSecrets } from "../discovery/mcp-import"
 
@@ -47,7 +70,7 @@ export async function collectSkills(
     for (const s of skills) {
       const dest = path.join(hub, t.tool, "skills", s)
       await mkdir(path.dirname(dest), { recursive: true })
-      await cp(path.join(t.skillsPath, s), dest, { recursive: true, force: true })
+      await copySkillReal(path.join(t.skillsPath, s), dest)
     }
     rows.push({ provider: t.tool, state: "found", skills })
   }
