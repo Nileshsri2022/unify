@@ -2,6 +2,7 @@ import {
   ChevronDown,
   GitCompareArrows,
   LayoutDashboard,
+  Layers,
   Brain,
   RefreshCw,
   Stethoscope,
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { Doctor } from "@/screens/Doctor"
+import { Hub } from "@/screens/Hub"
 import { Memory } from "@/screens/Memory"
 import { Overview } from "@/screens/Overview"
 import { ProfileScreen } from "@/screens/Profile"
@@ -29,6 +31,7 @@ import { LIVE_POLL_MS, LiveProvider, useLive, type ScreenId } from "@/lib/live"
 
 const nav: { id: ScreenId; label: string; icon: typeof Brain }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
+  { id: "hub", label: "Hub", icon: Layers },
   { id: "sync", label: "Sync", icon: GitCompareArrows },
   { id: "memory", label: "Memory", icon: Brain },
   { id: "profile", label: "Profiles", icon: UserRound },
@@ -37,6 +40,7 @@ const nav: { id: ScreenId; label: string; icon: typeof Brain }[] = [
 
 const titles: Record<ScreenId, { title: string; sub: string }> = {
   overview: { title: "Overview", sub: "Your AI agent stack at a glance" },
+  hub: { title: "Hub", sub: "Every provider's skills and MCP, in one place" },
   sync: { title: "Sync", sub: "Distribute config to every tool" },
   memory: { title: "Memory", sub: "What your agents learned from you" },
   profile: { title: "Profiles", sub: "work / personal contexts" },
@@ -207,6 +211,7 @@ function Shell() {
 
         <main className="px-6 py-5">
           {screen === "overview" && <Overview />}
+          {screen === "hub" && <Hub />}
           {screen === "sync" && <Sync />}
           {screen === "memory" && <Memory />}
           {screen === "profile" && <ProfileScreen />}

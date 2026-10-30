@@ -12,7 +12,7 @@ import { classifyFailure, type LiveFailure } from "./live-state"
 
 export type { LiveFailure } from "./live-state"
 
-export type ScreenId = "overview" | "sync" | "memory" | "profile" | "doctor"
+export type ScreenId = "overview" | "hub" | "sync" | "memory" | "profile" | "doctor"
 
 interface LiveContextValue {
   /** null = still probing, true = API reachable, false = no API at all */

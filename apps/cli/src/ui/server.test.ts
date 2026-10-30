@@ -257,6 +257,25 @@ describe("POST /api/sync", () => {
   })
 })
 
+describe("POST /api/hub/*", () => {
+  test("collect returns hub path + skills/MCP rows (same service as CLI)", async () => {
+    const r = await api("POST", "/api/hub/collect", {})
+    expect(r.status).toBe(200)
+    expect(String(r.json.hub)).toContain("global")
+    expect(Array.isArray(r.json.skills)).toBe(true)
+    expect(r.json.skills.some((x: any) => x.provider === "claude")).toBe(true)
+    expect(Array.isArray(r.json.mcp)).toBe(true)
+  })
+
+  test("sync returns collect + distribute rows", async () => {
+    const r = await api("POST", "/api/hub/sync", {})
+    expect(r.status).toBe(200)
+    expect(r.json.collect).toBeTruthy()
+    expect(Array.isArray(r.json.distributeSkills)).toBe(true)
+    expect(Array.isArray(r.json.distributeMcp)).toBe(true)
+  })
+})
+
 describe("error handling", () => {
   test("unknown /api route → 404 JSON", async () => {
     const r = await api("GET", "/api/nope")

@@ -112,6 +112,30 @@ export interface SyncResponse {
   lastSync: LastSyncEntry | null
 }
 
+export interface HubSkillRow {
+  provider: string
+  state: string
+  skills: string[]
+}
+
+export interface HubMcpRow {
+  provider: string
+  state: string
+  servers: string[]
+}
+
+export interface HubCollectResponse {
+  hub: string
+  skills: HubSkillRow[]
+  mcp: HubMcpRow[]
+}
+
+export interface HubSyncResponse {
+  collect: HubCollectResponse
+  distributeSkills: { provider: string; skill: string; action: string }[]
+  distributeMcp: { provider: string; server: string; action: string }[]
+}
+
 // ---- client ----------------------------------------------------------------
 
 export class ApiError extends Error {
@@ -169,6 +193,10 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ dryRun, target }),
     }),
+  hubCollect: () =>
+    request<HubCollectResponse>("/api/hub/collect", { method: "POST", body: JSON.stringify({}) }),
+  hubSync: () =>
+    request<HubSyncResponse>("/api/hub/sync", { method: "POST", body: JSON.stringify({}) }),
 }
 
 /** Human "2 min ago" from an ISO timestamp. */

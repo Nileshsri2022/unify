@@ -1,5 +1,4 @@
-import { GitCompareArrows, Loader2, Play, ShieldCheck, Sparkles } from "lucide-react"
-import { Badge } from "@/components/ui/badge"
+import { GitCompareArrows, Loader2, Play, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Switch } from "@/components/ui/switch"
@@ -147,7 +146,6 @@ export function Sync() {
         </CardContent>
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="pb-2">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -188,43 +186,6 @@ export function Sync() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="pb-2">
-            <CardTitle className="flex items-center gap-2 text-base">
-              <ShieldCheck className="size-4" />
-              Safety
-            </CardTitle>
-            <CardDescription>What unify never does without asking</CardDescription>
-          </CardHeader>
-          <CardContent className="flex flex-col gap-3 text-sm">
-            <div className="flex items-start gap-2">
-              <Badge variant="outline" className="mt-0.5 shrink-0">
-                dry-run
-              </Badge>
-              <p>
-                Every sync can be previewed first; apply is a separate, explicit action — from CLI
-                or this screen.
-              </p>
-            </div>
-            <div className="flex items-start gap-2">
-              <Badge variant="outline" className="mt-0.5 shrink-0">
-                scoped
-              </Badge>
-              <p>
-                Per-target re-sync only touches that tool's config.
-              </p>
-            </div>
-            <div className="flex items-start gap-2">
-              <Badge variant="outline" className="mt-0.5 shrink-0">
-                pinned
-              </Badge>
-              <p>
-                Backend binaries are SHA256-pinned; a mismatched binary blocks sync.
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   )
 }

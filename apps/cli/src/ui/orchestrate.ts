@@ -263,6 +263,18 @@ export class Orchestrator {
     return { result, glue, lastSync: null }
   }
 
+  /** Hub collect (hub-only writes) — same service as CLI `hub collect`. */
+  async hubCollect() {
+    const { hubCollect } = await import("../global-hub/service")
+    return hubCollect(this.userHome, this.unifyHome)
+  }
+
+  /** Hub sync (collect, then distribute, collisions skipped) — same as CLI `hub sync`. */
+  async hubSync() {
+    const { hubSync } = await import("../global-hub/service")
+    return hubSync(this.userHome, this.unifyHome)
+  }
+
   private async readLock() {
     const { readLock } = await import("../commands/state-io")
     return readLock(this.unifyHome)
