@@ -121,6 +121,103 @@ export interface EnsureEngineResult {
   version?: string
 }
 
+export interface AgentmemoryProbeResult {
+  /** agentmemory would accept this binary. */
+  ok: boolean
+  /** Version parsed from stdout the way agentmemory parses it. */
+  version?: string
+  stdout: string
+  stderr: string
+  code: number | null
+  ms: number
+  timedOut: boolean
+  error?: string
+}
+
+/**
+ * Reproduce agentmemory 0.9.31's *own* engine check — `iiiBinVersion()`:
+ *
+ *   execFileSync(bin, ["--version"], { stdio: ["ignore", "pipe", "ignore"],
+ *                                      timeout: 3000 }).match(/(\d+\.\d+\.\d+)/)
+ *
+ * That is stricter than anything unify does: stdout only (stderr is
+ * discarded), a hard 3 s timeout, and any non-zero exit throws. A binary unify
+ * happily accepts can therefore still be rejected here, after which agentmemory
+ * reports "Could not start iii-engine" and falls into an installer that cannot
+ * work on Windows. Running this first turns that mystery into one line.
+ */
+export async function probeEngineAsAgentmemory(
+  bin: string,
+  timeoutMs = 3000,
+): Promise<AgentmemoryProbeResult> {
+  const started = Date.now()
+  let proc: ReturnType<typeof Bun.spawn>
+  try {
+    proc = Bun.spawn([bin, "--version"], { stdin: "ignore", stdout: "pipe", stderr: "pipe" })
+  } catch (e) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "",
+      code: null,
+      ms: Date.now() - started,
+      timedOut: false,
+      error: e instanceof Error ? e.message : String(e),
+    }
+  }
+
+  // Drain immediately: a full pipe buffer would deadlock the child.
+  const readers = Promise.all([
+    new Response(proc.stdout as ReadableStream).text().catch(() => ""),
+    new Response(proc.stderr as ReadableStream).text().catch(() => ""),
+  ])
+
+  let timedOut = false
+  const code = await Promise.race([
+    proc.exited,
+    new Promise<null>((resolve) =>
+      setTimeout(() => {
+        timedOut = true
+        try {
+          proc.kill()
+        } catch {
+          /* already gone */
+        }
+        resolve(null)
+      }, timeoutMs),
+    ),
+  ])
+
+  // After a kill the pipes can stay open (a grandchild may still hold them),
+  // so never block the CLI on a dying tree — fall back to empty output.
+  const [stdout, stderr] = await Promise.race([
+    readers,
+    new Promise<[string, string]>((resolve) => setTimeout(() => resolve(["", ""]), timedOut ? 150 : 2000)),
+  ])
+
+  const match = stdout.match(/(\d+\.\d+\.\d+(?:[-+][\w.]+)?)/)
+  return {
+    ok: !timedOut && code === 0 && match !== null,
+    version: match?.[1],
+    stdout: stdout.trim(),
+    stderr: stderr.trim(),
+    code,
+    ms: Date.now() - started,
+    timedOut,
+  }
+}
+
+/** Human-readable one-liner for a failed probe. */
+export function describeProbeFailure(p: AgentmemoryProbeResult): string {
+  const bits: string[] = []
+  bits.push(p.timedOut ? `no answer within 3s` : `exit ${p.code ?? "?"}`)
+  bits.push(`${p.ms}ms`)
+  if (p.error) bits.push(p.error)
+  if (p.stdout === "" && !p.timedOut) bits.push("stdout empty")
+  if (p.stderr) bits.push(`stderr: ${p.stderr.split("\n")[0].slice(0, 120)}`)
+  return bits.join(", ")
+}
+
 async function engineVersion(bin: string): Promise<string | undefined> {
   const r = await realRunner(bin)(["--version"])
   if (r.code !== 0) return undefined

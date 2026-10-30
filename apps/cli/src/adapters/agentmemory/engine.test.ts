@@ -8,11 +8,13 @@ import { BIN, makeTarGz, makeZip } from "../../../test/archives"
 import {
   EngineError,
   III_RELEASE_SHA256,
+  describeProbeFailure,
   ensureEngine,
   engineBinName,
   engineInstallPath,
   iiiAssetFor,
   iiiReleaseUrl,
+  probeEngineAsAgentmemory,
 } from "./engine"
 
 /**
@@ -185,5 +187,59 @@ describe("ensureEngine", () => {
     }).catch((e) => e)
     expect(err).toBeInstanceOf(EngineError)
     expect(err.code).toBe("download")
+  })
+})
+
+/**
+ * agentmemory checks the engine itself with `execFileSync(bin, ["--version"],
+ * { stdio: ["ignore","pipe","ignore"], timeout: 3000 })` — stdout only, 3 s,
+ * non-zero exit throws. Anything it rejects makes it print "Could not start
+ * iii-engine" and fall into an installer that is broken on Windows. These
+ * tests pin the emulation of that check.
+ */
+describe("probeEngineAsAgentmemory", () => {
+  const mk = async (name: string, body: string) => {
+    const f = path.join(root, name)
+    await writeFile(f, body, { mode: 0o755 })
+    return f
+  }
+
+  test("accepts a binary that prints the version on stdout", async () => {
+    const bin = await mk("ok-iii", "#!/bin/sh\necho 0.25.0\n")
+    const p = await probeEngineAsAgentmemory(bin, 3000)
+    expect(p.ok).toBe(true)
+    expect(p.version).toBe("0.25.0")
+    expect(p.timedOut).toBe(false)
+    expect(p.code).toBe(0)
+  })
+
+  test("rejects a version printed on stderr (agentmemory ignores stderr)", async () => {
+    const bin = await mk("stderr-iii", "#!/bin/sh\necho 0.25.0 >&2\nexit 0\n")
+    const p = await probeEngineAsAgentmemory(bin, 3000)
+    expect(p.ok).toBe(false)
+    expect(p.stdout).toBe("")
+    expect(p.stderr).toContain("0.25.0")
+    expect(describeProbeFailure(p)).toContain("stderr: 0.25.0")
+  })
+
+  test("times out like the 3 s execFileSync, and says so", async () => {
+    const bin = await mk("slow-iii", "#!/bin/sh\nsleep 5\necho 0.25.0\n")
+    const p = await probeEngineAsAgentmemory(bin, 300)
+    expect(p.ok).toBe(false)
+    expect(p.timedOut).toBe(true)
+    expect(p.ms).toBeGreaterThanOrEqual(250)
+  })
+
+  test("rejects a non-zero exit even with a version on stdout", async () => {
+    const bin = await mk("exit1-iii", "#!/bin/sh\necho 0.25.0\nexit 1\n")
+    const p = await probeEngineAsAgentmemory(bin, 3000)
+    expect(p.ok).toBe(false)
+    expect(p.code).toBe(1)
+  })
+
+  test("missing binary is an error, not a crash", async () => {
+    const p = await probeEngineAsAgentmemory(path.join(root, "nope-iii"), 1000)
+    expect(p.ok).toBe(false)
+    expect(p.error ?? p.code).toBeTruthy()
   })
 })

@@ -55,8 +55,13 @@ export async function ensureRunning(
   // good start look failed).
   const logOffset = sizeOf(opts.logFile)
   const logFd = openSync(opts.logFile, "a")
+  // AGENTMEMORY_VERBOSE makes the dependency log its own engine discovery
+  // ("iii binary: …", "fallback iii at … reports version: …"). That is the only
+  // way to see WHY it rejects an engine unify considers installed, and it only
+  // lands in the log file. UNIFY_MEMORY_VERBOSE=0 restores quiet behaviour.
+  const verbose = process.env.UNIFY_MEMORY_VERBOSE === "0" ? {} : { AGENTMEMORY_VERBOSE: "1" }
   const child = Bun.spawn(agentmemoryArgv(opts.cliPath, opts.entryPath), {
-    env: { ...process.env, HOME: opts.home, ...(opts.env ?? {}) },
+    env: { ...process.env, HOME: opts.home, ...verbose, ...(opts.env ?? {}) },
     stdin: "ignore",
     stdout: logFd,
     stderr: logFd,
@@ -96,7 +101,10 @@ export async function ensureRunning(
       ])
       if (dead && !(await probe(opts.baseUrl))) {
         throw new Error(
-          `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile, 8, logOffset)}`.trim(),
+          withTrace(
+            `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
+            engineTrace(opts.logFile, logOffset),
+          ),
         )
       }
       // The supervisor can also stay alive after giving up on a fatal problem
@@ -106,7 +114,10 @@ export async function ensureRunning(
       if (fatal) {
         const line = fatal.replace(/[.\s]+$/, "")
         throw new Error(
-          `agentmemory cannot start: ${line}. Log tail:\n${tailOf(opts.logFile, 8, logOffset)}`.trim(),
+          withTrace(
+            `agentmemory cannot start: ${line}. Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
+            engineTrace(opts.logFile, logOffset),
+          ),
         )
       }
     }
@@ -164,6 +175,41 @@ export function fatalEngineLine(logFile: string, offset = 0): string | null {
  * 60-line decorated "Setup required" box; repeating all of it tells the user
  * nothing they can act on.
  */
+/**
+ * Lines from *this run* that explain engine discovery, e.g.
+ *   iii binary: (not on PATH)
+ *   fallback iii at C:\…\iii.exe reports version: 0.25.0
+ * agentmemory only prints these with --verbose (which unify turns on), and
+ * they are the only evidence of why it rejected an engine we believe is fine.
+ */
+/** Append agentmemory's engine-discovery lines to a failure message. */
+function withTrace(message: string, trace: string[]): string {
+  return (trace.length ? `${message}\nengine trace:\n${trace.join("\n")}` : message).trim()
+}
+
+export function engineTrace(logFile: string, offset = 0, max = 6): string[] {
+  let text = ""
+  try {
+    text = readFileSync(logFile, "utf8")
+  } catch {
+    return []
+  }
+  const fresh = offset > 0 ? text.slice(offset) : text
+  // discovery lines only — box text like "iii-engine could not be started." is
+  // already in the log tail and would just bury the useful two lines
+  const wanted = /iii binary|fallback iii|reports version|Using iii|pin is v|engine check/i
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of fresh.split("\n")) {
+    const line = raw.replace(/\u001b\[[0-9;]*m/g, "").trim()
+    if (!line || !wanted.test(line)) continue
+    if (seen.has(line)) continue
+    seen.add(line)
+    out.push(line)
+  }
+  return out.slice(-max)
+}
+
 export function tailOf(logFile: string, lines = 8, offset = 0): string {
   let text = ""
   try {
