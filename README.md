@@ -20,6 +20,9 @@ instead of re-implementing them.
 
 ## Quickstart (dev)
 
+Clean machine (install Bun/Node, `init`, dashboard) step by step:
+**[docs/SETUP.md](docs/SETUP.md)**.
+
 ```bash
 bun install
 bun test                 # unit tests (core, cli, dashboard lib helpers)
@@ -91,7 +94,7 @@ failed, e.g. a backend that is not installed) are reported differently.
 packages/core     shared types, config loader (zod), state paths
 apps/cli          unify CLI (commands, adapters, dashboard server)
 apps/dashboard    React dashboard (shadcn/ui)
-docs/             DESIGN.md, PROGRESS.md, plans/
+docs/             SETUP.md (initial setup), plans/
 ```
 
 ## Status
