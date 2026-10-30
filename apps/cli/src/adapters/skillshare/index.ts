@@ -33,12 +33,45 @@ export interface SkillshareAdapterDeps {
   binPath?: string
   /** Override source skills dir (default ~/.config/skillshare/skills). */
   sourceDir?: string
+  /**
+   * Env/platform used to locate skillshare's global config. Injectable so
+   * tests are not at the mercy of the ambient $XDG_CONFIG_HOME (GitHub
+   * runners set it; that made the config-discovery tests fail only on CI)
+   * and so win32 config paths can be exercised from any host.
+   */
+  env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
 }
 
 export interface SkillshareFullStatus {
   backend: BackendStatus
   targets: TargetRow[]
   skills: string[]
+}
+
+/**
+ * Where skillshare keeps its global config. XDG on unix, %APPDATA% on Windows
+ * (verified from its CLI output: "global config:
+ * C:\\Users\\<user>\\AppData\\Roaming\\skillshare\\config.yaml").
+ */
+export function skillshareConfigPaths(
+  home: string,
+  env: NodeJS.ProcessEnv = process.env,
+  platform: NodeJS.Platform = process.platform,
+): string[] {
+  const paths: string[] = []
+  if (platform === "win32") {
+    const appData = env.APPDATA ?? path.join(home, "AppData", "Roaming")
+    paths.push(path.join(appData, "skillshare", "config.yaml"))
+  }
+  const xdg = env.XDG_CONFIG_HOME ?? path.join(home, ".config")
+  paths.push(path.join(xdg, "skillshare", "config.yaml"))
+  return [...new Set(paths)]
+}
+
+/** First non-empty line — enough for a one-line error, never a stack. */
+function firstLine(text: string): string {
+  return text.split("\n").map((l) => l.trim()).find((l) => l.length > 0) ?? ""
 }
 
 /** Release asset member name — Windows ships `skillshare.exe`. */
@@ -240,16 +273,37 @@ export class SkillshareAdapter implements BackendAdapter {
    * if no skillshare config exists, run `skillshare init --no-copy
    * --all-targets`; then ensure every desired target exists, adding missing
    * ones via `target add <name> <default-path>`.
+   *
+   * "Already initialized" is a success, not a failure: skillshare stores its
+   * global config in %APPDATA% on Windows, so a path guess alone cannot decide
+   * this — and a second `unify init` used to die on that error.
    */
+  /**
+   * True when skillshare already has a global config in any known location.
+   * `env`/`platform` are injectable so tests aren't at the mercy of the
+   * ambient $XDG_CONFIG_HOME (GitHub runners set it, which made the first
+   * version of these tests fail only on CI).
+   */
+  async isInitialized(
+    env: NodeJS.ProcessEnv = this.d.env ?? process.env,
+    platform: NodeJS.Platform = this.d.platform ?? process.platform,
+  ): Promise<boolean> {
+    for (const p of skillshareConfigPaths(this.d.home, env, platform)) {
+      if (await isFile(p)) return true
+    }
+    return false
+  }
+
   async ensureState(desiredTargets: string[]): Promise<{ initialized: boolean; added: string[] }> {
-    const cfg = path.join(this.d.home, ".config", "skillshare", "config.yaml")
     let initialized = false
-    if (!(await isFile(cfg))) {
+    if (!(await this.isInitialized())) {
       const r = await this.d.runner(["init", "--no-copy", "--all-targets"])
-      if (r.code !== 0) {
-        throw new Error(`skillshare init failed: ${(r.stderr || r.stdout).trim() || `exit ${r.code}`}`)
+      const out = (r.stderr || r.stdout).trim()
+      if (r.code !== 0 && !/already initialized/i.test(out)) {
+        throw new Error(`skillshare init failed: ${firstLine(out) || `exit ${r.code}`}`)
       }
-      initialized = true
+      // non-zero + "already initialized" = someone (or a previous run) set it up
+      initialized = r.code === 0
     }
 
     const listOut = await this.d.runner(["target", "list"])
@@ -265,7 +319,7 @@ export class SkillshareAdapter implements BackendAdapter {
       }
       const r = await this.d.runner(["target", "add", t, p])
       if (r.code !== 0) {
-        throw new Error(`skillshare target add ${t} failed: ${(r.stderr || r.stdout).trim() || `exit ${r.code}`}`)
+        throw new Error(`skillshare target add ${t} failed: ${firstLine((r.stderr || r.stdout).trim()) || `exit ${r.code}`}`)
       }
       added.push(t)
     }

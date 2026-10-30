@@ -37,6 +37,8 @@ export interface OrchestratorOptions {
   agentmemoryBaseUrl?: string
   /** Extra env passed to the spawned memory server (tests). */
   serverEnv?: Record<string, string>
+  /** Progress listener for memory startup (CLI prints it; API stays quiet). */
+  log?: (line: string) => void
   /** Explicit skillshare binary path (tests: stub on PATH). */
   skillshareBinPath?: string
 }
@@ -57,6 +59,7 @@ export class Orchestrator {
     return buildRegistry(this.userHome, this.unifyHome, {
       agentmemoryBaseUrl: this.opts.agentmemoryBaseUrl ?? process.env.AGENTMEMORY_URL,
       agentmemoryServerEnv: this.opts.serverEnv,
+      agentmemoryLog: this.opts.log,
       skillshareBinPath: this.opts.skillshareBinPath,
     })
   }

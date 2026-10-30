@@ -32,6 +32,8 @@ export interface BuildRegistryOptions {
   agentmemoryNpmRunner?: Runner
   /** Extra env for the spawned memory server (tests: STUB_PORT etc.). */
   agentmemoryServerEnv?: Record<string, string>
+  /** Progress listener for agentmemory startup / engine provisioning. */
+  agentmemoryLog?: (line: string) => void
 }
 
 /**
@@ -70,6 +72,7 @@ export async function buildRegistry(
       nodeRunner: opts.agentmemoryNodeRunner,
       npmRunner: opts.agentmemoryNpmRunner,
       serverEnv: opts.agentmemoryServerEnv,
+      log: opts.agentmemoryLog,
     }),
   )
 
