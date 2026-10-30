@@ -82,12 +82,40 @@ export function skillshareInstallHints(manifestSource?: string, manifestSha?: st
  */
 export function memoryStartHints(message: string, enginePath: string): string[] {
   const hints: string[] = []
-  if (/iii-engine|engine/i.test(message)) {
+
+  // agentmemory's own view of the engine (emitted under --verbose by unify).
+  // This is the only evidence for "it is installed but I will not use it".
+  const traceAt = message.indexOf("engine trace:")
+  const trace =
+    traceAt >= 0
+      ? message.slice(traceAt + "engine trace:".length).trim().split("\n").filter(Boolean)
+      : []
+  const withoutTrace = traceAt >= 0 ? message.slice(0, traceAt) : message
+
+  const installFailed = /could not be installed|not installed|no iii-engine build|refusing to install/i.test(
+    withoutTrace,
+  )
+  if (installFailed) {
     hints.push(`  unify normally installs iii-engine automatically → ${enginePath}`)
     hints.push("  if your network blocks GitHub release assets, see docs/SETUP.md (Windows notes)")
+  } else if (/iii-engine|engine/i.test(withoutTrace)) {
+    hints.push(`  iii-engine is installed → ${enginePath}`)
+    hints.push("  but agentmemory will not use it; the check below is the reason")
+    hints.push("  UNIFY_SKIP_ENGINE_INSTALL=1 if you install iii yourself; docs/SETUP.md has the rest")
   }
-  const tail = message.split("Log tail:")[1]?.trim()
+
+  if (trace.length > 0) {
+    hints.push(
+      `  agentmemory's engine check:\n${trace
+        .slice(-4)
+        .map((l) => `    ${l}`)
+        .join("\n")}`,
+    )
+  }
+
+  const tail = withoutTrace.split("Log tail:")[1]?.trim()
   if (tail) hints.push(`  last log lines:\n${tail.split("\n").slice(-5).map((l) => `    ${l}`).join("\n")}`)
+
   hints.push("  memory is unavailable until this is fixed; skills still sync.")
   hints.push("  retry later with: unify memory save \"ping\"   (or re-run: unify init)")
   return hints

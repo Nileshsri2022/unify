@@ -22,7 +22,13 @@ import {
 } from "./client"
 import { ensureRunning, probe } from "./server"
 import { agentmemoryArgv, agentmemoryEntryPath } from "./command"
-import { EngineError, ensureEngine, engineInstallPath } from "./engine"
+import {
+  describeProbeFailure,
+  EngineError,
+  ensureEngine,
+  engineInstallPath,
+  probeEngineAsAgentmemory,
+} from "./engine"
 
 export const AGENTMEMORY_PINNED_VERSION = "0.9.31"
 export const AGENTMEMORY_NPM_PACKAGE = "@agentmemory/agentmemory"
@@ -134,8 +140,10 @@ export class AgentmemoryAdapter implements BackendAdapter {
     // pinned binary is present and runs, and reinstalls when it is missing,
     // corrupt or an old copy from a previous attempt — a stale iii.exe must not
     // be trusted just because the file exists.
+    let engineNote: string | undefined
     if (allowProvision && process.platform === "win32") {
       await this.provisionEngine()
+      engineNote = await this.checkEngineAsAgentmemory()
     }
 
     try {
@@ -143,16 +151,46 @@ export class AgentmemoryAdapter implements BackendAdapter {
     } catch (e) {
       const canRetry = allowProvision && !(await isFile(engineInstallPath(this.d.home)))
       if (!canRetry) {
-        throw e instanceof AgentmemoryStartError
-          ? e
-          : new AgentmemoryStartError("start", e instanceof Error ? e.message : String(e), {
-              cause: e,
-            })
+        throw this.startFailure(e, engineNote)
       }
       // the supervisor died because the engine is missing — install it and retry
       await this.provisionEngine()
       await this.startSupervisor()
     }
+  }
+
+  /**
+   * Run agentmemory's own engine check before starting it, and log the result.
+   * When it fails there is nothing the supervisor can do — agentmemory will
+   * declare the engine missing and try an installer that cannot run on Windows
+   * — so the verdict is kept and attached to the failure message.
+   */
+  private async checkEngineAsAgentmemory(): Promise<string | undefined> {
+    const bin = engineInstallPath(this.d.home)
+    const p = await probeEngineAsAgentmemory(bin)
+    if (p.ok) {
+      this.d.log?.(`iii-engine seen by agentmemory (v${p.version}, ${p.ms}ms)`)
+      return undefined
+    }
+    const note = `agentmemory's engine check failed: \`iii --version\` gave ${describeProbeFailure(p)}`
+    this.d.log?.(`warning: ${note}`)
+    return note
+  }
+
+  private startFailure(e: unknown, engineNote?: string): AgentmemoryStartError {
+    const message = e instanceof Error ? e.message : String(e)
+    if (e instanceof AgentmemoryStartError && !engineNote) return e
+    // Prefer one precise line about the engine over the dependency's box.
+    if (engineNote && /iii-engine/i.test(message)) {
+      return new AgentmemoryStartError(
+        "engine",
+        `${engineNote}. agentmemory therefore reports the engine as missing (${engineInstallPath(this.d.home)})`,
+        { cause: e },
+      )
+    }
+    return e instanceof AgentmemoryStartError
+      ? e
+      : new AgentmemoryStartError("start", message, { cause: e })
   }
 
   private async provisionEngine(): Promise<void> {
@@ -445,7 +483,10 @@ export {
   engineInstallPath,
   iiiAssetFor,
   iiiReleaseUrl,
+  probeEngineAsAgentmemory,
+  describeProbeFailure,
   type EngineErrorCode,
+  type AgentmemoryProbeResult,
   type EnsureEngineResult,
 } from "./engine"
 export { RestMemoryClient, ServerDownError, AuthError } from "./client"
