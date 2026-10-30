@@ -30,7 +30,7 @@ function adapterFor(userHome: string, unifyHome: string): AgentmemoryAdapter {
   })
 }
 
-async function requireReady(
+export async function requireReady(
   userHome: string,
   unifyHome: string,
 ): Promise<AgentmemoryAdapter | null> {
@@ -61,7 +61,7 @@ async function requireReady(
  * Returns null (and sets exit code 1) when agentmemory is disabled for the
  * profile, so callers can bail cleanly without an unhandled rejection.
  */
-async function profileScope(
+export async function profileScope(
   unifyHome: string,
 ): Promise<{ profile: string; namespace: string } | null> {
   const { config, errors } = await loadUnifyAt(path.join(unifyHome, "unify.yaml"))
