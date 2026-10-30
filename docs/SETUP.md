@@ -195,6 +195,12 @@ bun run build:dashboard
   for the `.exe` name.
 - agentmemory is started as `node <pkg>\dist\cli.mjs` — npm's `.bin\agentmemory`
   shim is a shell script Windows cannot execute.
+- **unify installs agentmemory's `iii-engine` itself.** agentmemory 0.9.31 cannot
+  install it on Windows (it needs `sh`/`curl`/`tar` and refuses `.zip` assets), so
+  unify downloads the pinned `iii v0.25.0` asset, verifies its SHA-256, extracts
+  `iii.exe` in-process and places it at `%USERPROFILE%\.agentmemory\bin\iii.exe`
+  — the path agentmemory reads first. Set `UNIFY_SKIP_ENGINE_INSTALL=1` to manage
+  the engine yourself.
 - State lives in `C:\Users\<you>\.unify`; the dashboard is at
   `http://127.0.0.1:7420`.
 - Running inside WSL is the same as Linux — use the Linux commands above.
@@ -209,6 +215,8 @@ bun run build:dashboard
 | Red **“API error 500 …”** banner | The API is up and a handler failed | read the message, run `unify doctor`; the banner retries automatically |
 | `skillshare not installed` | Backend not installed (normal before `unify init`) | `unify init` (or `--skip-install` after installing the binary yourself) |
 | `memory server not running` | agentmemory installed, supervisor down | `unify init`, else read `~/.unify/state/agentmemory-server.log` (often iii-engine download / Node < 20) |
+| `unify memory: iii-engine is required by agentmemory but could not be installed: …` | the pinned engine could not be downloaded/verified on this machine | check GitHub release access, then `unify init` again; manual steps in the message. `UNIFY_SKIP_ENGINE_INSTALL=1` if you install `iii` yourself |
+| `unify init` stops at "ensuring memory server …" but finishes quickly | by design since M6.1: memory failures are non-fatal and reported in ≤2 s | skills still sync; fix the cause above and run `unify memory save "ping"` |
 | `unify ui: config invalid:` | `~/.unify/unify.yaml` failed the zod schema — `unify ui` refuses to start rather than serve half-broken state | fix the file, or `mv ~/.unify/unify.yaml{,.bak}` and re-run `unify init` |
 | `EADDRINUSE` / port busy | 7420 taken | `unify ui --port 7421` or `UNIFY_UI_PORT=7421 unify ui` |
 | Dashboard unreachable from a container | loopback bind | `unify ui --host 0.0.0.0` (no auth — expose deliberately) |

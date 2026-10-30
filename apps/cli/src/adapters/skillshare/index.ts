@@ -18,7 +18,7 @@ import { mkdir, readdir, writeFile, chmod } from "node:fs/promises"
 import type { Runner } from "../runner"
 import { realRunner } from "../runner"
 import { parseSyncJson, parseTargetList, parseVersion } from "./parse"
-import { readMember } from "./archive"
+import { readMember } from "../archive"
 import { SKILLSHARE_PINNED_VERSION } from "./manifest"
 import { DEFAULT_SKILL_PATHS, KNOWN_TOOLS, detectInstalledTools } from "./tools"
 

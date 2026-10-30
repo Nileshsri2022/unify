@@ -58,37 +58,109 @@ export async function ensureRunning(
     detached: true,
   })
 
-  const timeout = opts.readyTimeoutMs ?? 180_000
-  const deadline = Date.now() + timeout
-  while (Date.now() < deadline) {
-    if (await probe(opts.baseUrl)) {
-      // Bun keeps the event loop alive while a spawned child is live, even
-      // detached — release it so the CLI can exit (the server keeps running).
-      ;(child as unknown as { unref?: () => void }).unref?.()
-      return { started: true }
+  const killChild = () => {
+    try {
+      process.kill(-child.pid, "SIGKILL")
+    } catch {
+      try {
+        process.kill(child.pid, "SIGKILL")
+      } catch {
+        /* already gone */
+      }
     }
-    await new Promise((r) => setTimeout(r, 1000))
   }
 
-  // Never leave a half-started supervisor behind.
+  let started = false
   try {
-    process.kill(-child.pid, "SIGKILL")
-  } catch {
-    try {
-      process.kill(child.pid, "SIGKILL")
-    } catch {
-      /* already gone */
+    const timeout = opts.readyTimeoutMs ?? 180_000
+    const deadline = Date.now() + timeout
+    // A supervisor can fail immediately (missing engine, bad config, port in
+    // use). Watching it means a failure known after ~2s never costs 180s.
+    const exited = child.exited.then((code) => ({ code }))
+    while (Date.now() < deadline) {
+      if (await probe(opts.baseUrl)) {
+        // Bun keeps the event loop alive while a spawned child is live, even
+        // detached — release it so the CLI can exit (the server keeps running).
+        ;(child as unknown as { unref?: () => void }).unref?.()
+        started = true
+        return { started: true }
+      }
+      const dead = await Promise.race([
+        exited,
+        new Promise<null>((r) => setTimeout(() => r(null), 1000)),
+      ])
+      if (dead && !(await probe(opts.baseUrl))) {
+        throw new Error(
+          `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile)}`.trim(),
+        )
+      }
+      // The supervisor can also stay alive after giving up on a fatal problem
+      // (agentmemory does this when iii-engine cannot start). Waiting out the
+      // remaining minutes only delays a failure that is already on screen.
+      const fatal = fatalEngineLine(opts.logFile)
+      if (fatal) {
+        throw new Error(`agentmemory cannot start: ${fatal}. Log tail:\n${tailOf(opts.logFile)}`.trim())
+      }
     }
+    throw new Error(
+      `agentmemory server not ready within ${timeout}ms. Log tail:\n${tailOf(opts.logFile)}`.trim(),
+    )
+  } finally {
+    // Reap the child on every failure path: a detached supervisor that keeps
+    // running holds Bun's event loop open, so the CLI would stall on exit even
+    // after it decided to give up (observed as a 60s hang with a sleep stub).
+    if (!started) killChild()
   }
-  let tail = ""
+}
+
+/**
+ * Detect a fatal engine/bootstrap line in the supervisor log.
+ * Returns the matching line (or null). Only unambiguous failures are listed —
+ * a false positive would abort a start that was about to succeed.
+ */
+export function fatalEngineLine(logFile: string): string | null {
+  let text = ""
   try {
-    tail = readFileSync(opts.logFile, "utf8").slice(-2000)
+    text = readFileSync(logFile, "utf8")
   } catch {
-    /* no log */
+    return null
   }
-  throw new Error(
-    `agentmemory server not ready within ${timeout}ms. Log tail:\n${tail}`.trim(),
-  )
+  // only the tail matters: an old failure from a previous run must not abort
+  const recent = text.slice(-4000)
+  const patterns = [
+    /Could not start iii-engine/i,
+    /iii-engine could not be started/i,
+    /Setup required/i,
+    /iii-engine download failed/i,
+    /EADDRINUSE/i,
+  ]
+  for (const line of recent.split("\n")) {
+    if (patterns.some((p) => p.test(line))) return line.trim().replace(/^[^A-Za-z]+/, "")
+  }
+  return null
+}
+
+/**
+ * Last few log lines, filtered to what is actionable. agentmemory prints a
+ * 60-line decorated "Setup required" box; repeating all of it tells the user
+ * nothing they can act on.
+ */
+export function tailOf(logFile: string, lines = 8): string {
+  let text = ""
+  try {
+    text = readFileSync(logFile, "utf8")
+  } catch {
+    return "(no log)"
+  }
+  const clean = text
+    // box drawing / ANSI / cursor-control noise
+    .replace(/\u001b\[[0-9;?]*[a-zA-Z]/g, "")
+    .replace(/[│◇◆├└┌┐┘─╭╮╰╯■▲●]/g, " ")
+    .split("\n")
+    .map((l) => l.replace(/\s+$/, "").trim())
+    .filter((l) => l.length > 0 && !/^[-=_. ]+$/.test(l))
+    .filter((l) => !/^\d{1,2}:\d{2}:\d{2}\s*(AM|PM)$/.test(l))
+  return (clean.length > lines ? ["…", ...clean.slice(-lines)] : clean).join("\n")
 }
 
 export async function stop(

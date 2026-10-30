@@ -106,5 +106,6 @@ docs/             SETUP.md (initial setup), plans/
 - [ ] M4 — Stitch → shadcn dashboard refinement (blocked on API key)
 - [x] M5 — `unify ui` dashboard + JSON API, local-first
 - [x] M6 — Windows support for backend install/launch (`skillshare.exe` zip assets, node-run agentmemory)
+- [x] M6.1 — unify provisions agentmemory's `iii-engine` (Windows can't) + memory failures fail in ~1s, never abort init
 
 See `docs/DESIGN.md` for the full design and `docs/PROGRESS.md` for stage status.

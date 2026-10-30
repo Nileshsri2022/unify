@@ -297,3 +297,32 @@ describe("static dashboard serving", () => {
     expect((await res.json()).error).toBeTruthy()
   })
 })
+
+/**
+ * A memory backend that cannot start must read as "unavailable" (503) with the
+ * cause, not as a 500 carrying agentmemory's 60-line "Setup required" box —
+ * the dashboard prints `error` verbatim.
+ */
+describe("memory startup failure", () => {
+  test("engine missing → 503, single-line cause, actionable hint", async () => {
+    const api = createApiHandler({
+      userHome,
+      unifyHome,
+      distDir: "",
+      serveStatic: false,
+      // the stub supervisor is absent here, so startup fails immediately
+      skillshareBinPath: path.join(stubDir, "skillshare"),
+    })
+    const res = await api(
+      new Request("http://x/api/memory", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ text: "should not be stored" }),
+      }),
+    )
+    expect(res.status).toBe(503)
+    const body = (await res.json()) as { error: string }
+    expect(body.error.split("\n")).toHaveLength(1)
+    expect(body.error).toMatch(/agentmemory|iii-engine|memory server/i)
+  })
+})

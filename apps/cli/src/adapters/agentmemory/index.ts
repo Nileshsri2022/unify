@@ -22,6 +22,7 @@ import {
 } from "./client"
 import { ensureRunning, probe } from "./server"
 import { agentmemoryArgv, agentmemoryEntryPath } from "./command"
+import { EngineError, ensureEngine, engineInstallPath } from "./engine"
 
 export const AGENTMEMORY_PINNED_VERSION = "0.9.31"
 export const AGENTMEMORY_NPM_PACKAGE = "@agentmemory/agentmemory"
@@ -56,6 +57,22 @@ export interface AgentmemoryAdapterDeps {
   serverEnv?: Record<string, string>
   /** Override for tests (defaults to live REST calls). */
   client?: MemoryClient
+  /** Ready timeout for the supervisor (tests keep this short). */
+  readyTimeoutMs?: number
+  /** Progress listener for engine provisioning (defaults to silent). */
+  log?: (line: string) => void
+}
+
+/** Startup failure with a machine-readable reason (init/doctor/dashboard use it). */
+export class AgentmemoryStartError extends Error {
+  constructor(
+    readonly reason: "engine" | "engine-unsupported" | "start",
+    message: string,
+    opts?: { cause?: unknown },
+  ) {
+    super(message, opts)
+    this.name = "AgentmemoryStartError"
+  }
 }
 
 export interface AgentmemoryFullStatus {
@@ -93,20 +110,83 @@ export class AgentmemoryAdapter implements BackendAdapter {
   }
 
   /**
-   * Ensure the memory server is running: probe first, and if down, auto-start
-   * the pinned CLI (detached, log under state/). Throws if it cannot be
-   * brought up within the ready timeout.
+   * Ensure the memory server is running.
+   *
+   * Order matters: probe → (Windows only) provision iii-engine → start the
+   * supervisor → if it failed because the engine is missing, provision and
+   * retry once.
+   *
+   * Up-front provisioning is limited to Windows because agentmemory 0.9.31
+   * *cannot* install its engine there (it shells out to curl/tar and gives up on
+   * zip assets), which used to surface as a 180 s hang in `unify init`. On other
+   * platforms agentmemory installs the engine itself, so unify only steps in
+   * after a failure, and only when the binary is genuinely absent — a running
+   * engine, a stub or a custom setup is left alone.
+   *
+   * UNIFY_SKIP_ENGINE_INSTALL=1 disables all of this.
    */
   async ensureServer(): Promise<void> {
     if (await probe(this.base)) return
-    await ensureRunning({
-      cliPath: agentmemoryCliPath(this.d.unifyHome),
-      entryPath: agentmemoryEntryPath(this.d.unifyHome),
-      home: this.d.home,
-      baseUrl: this.base,
-      logFile: path.join(this.d.unifyHome, "state", "agentmemory-server.log"),
-      env: this.d.serverEnv,
-    })
+
+    const allowProvision = process.env.UNIFY_SKIP_ENGINE_INSTALL !== "1"
+    const engine = engineInstallPath(this.d.home)
+    const enginePresent = await isFile(engine)
+
+    if (allowProvision && process.platform === "win32" && !enginePresent) {
+      await this.provisionEngine()
+    }
+
+    try {
+      await this.startSupervisor()
+    } catch (e) {
+      const canRetry = allowProvision && !(await isFile(engine))
+      if (!canRetry) {
+        throw e instanceof AgentmemoryStartError
+          ? e
+          : new AgentmemoryStartError("start", e instanceof Error ? e.message : String(e), {
+              cause: e,
+            })
+      }
+      // the supervisor died because the engine is missing — install it and retry
+      await this.provisionEngine()
+      await this.startSupervisor()
+    }
+  }
+
+  private async provisionEngine(): Promise<void> {
+    try {
+      await ensureEngine({ home: this.d.home, log: (line) => this.d.log?.(line) })
+    } catch (e) {
+      const detail = e instanceof Error ? e.message : String(e)
+      throw new AgentmemoryStartError(
+        e instanceof EngineError && e.code === "unsupported-platform" ? "engine-unsupported" : "engine",
+        `iii-engine is required by agentmemory but could not be installed: ${detail}`,
+        { cause: e },
+      )
+    }
+  }
+
+  private async startSupervisor(): Promise<void> {
+    try {
+      await ensureRunning({
+        cliPath: agentmemoryCliPath(this.d.unifyHome),
+        entryPath: agentmemoryEntryPath(this.d.unifyHome),
+        home: this.d.home,
+        baseUrl: this.base,
+        logFile: path.join(this.d.unifyHome, "state", "agentmemory-server.log"),
+        env: this.d.serverEnv,
+        readyTimeoutMs: this.d.readyTimeoutMs,
+      })
+    } catch (e) {
+      throw new AgentmemoryStartError("start", e instanceof Error ? e.message : String(e), {
+        cause: e,
+      })
+    }
+  }
+
+  /** True when the engine binary agentmemory needs is present. */
+  async engineInstalled(): Promise<boolean> {
+    return isFile(engineInstallPath(this.d.home))
   }
 
   private async loadSecret(): Promise<string | undefined> {
@@ -259,12 +339,24 @@ export class AgentmemoryAdapter implements BackendAdapter {
       })
     }
     if (!(await probe(this.base))) {
-      issues.push({
-        severity: "warn",
-        backend: this.id,
-        message: "memory server not running",
-        fix: "unify init",
-      })
+      // Name the actual blocker: a missing iii-engine is a different fix from a
+      // crashed supervisor, and "not running" alone sent users in circles.
+      const engine = engineInstallPath(this.d.home)
+      if (!(await isFile(engine))) {
+        issues.push({
+          severity: "error",
+          backend: this.id,
+          message: `memory server not running — iii-engine missing (${engine})`,
+          fix: "unify init  (unify installs the pinned engine)",
+        })
+      } else {
+        issues.push({
+          severity: "warn",
+          backend: this.id,
+          message: "memory server not running",
+          fix: "unify init   ·   log: ~/.unify/state/agentmemory-server.log",
+        })
+      }
       return issues
     }
     if (det.version && det.version !== AGENTMEMORY_PINNED_VERSION) {
@@ -337,5 +429,17 @@ export { probe } from "./server"
 export { ensureRunning, stop } from "./server"
 export type { EnsureRunningOptions } from "./server"
 export { agentmemoryArgv, agentmemoryEntryPath } from "./command"
+export {
+  III_PINNED_VERSION,
+  III_RELEASE_SHA256,
+  EngineError,
+  ensureEngine,
+  engineBinName,
+  engineInstallPath,
+  iiiAssetFor,
+  iiiReleaseUrl,
+  type EngineErrorCode,
+  type EnsureEngineResult,
+} from "./engine"
 export { RestMemoryClient, ServerDownError, AuthError } from "./client"
 export type { MemoryClient, RecallResult } from "./client"
