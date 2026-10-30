@@ -18,7 +18,7 @@ jobs:
         run: bun test packages/core apps/cli apps/dashboard/src/lib
       - name: build binary
         run: bun run build:cli
-      - name: smoke: unify version
+      - name: "smoke: unify version"
         run: ./apps/cli/dist/unify version
 
   dashboard:
