@@ -35,7 +35,12 @@ export async function distributeSkills(
           continue
         }
         await mkdir(t.skillsPath, { recursive: true })
-        await cp(path.join(srcDir, s.name), dest, { recursive: true })
+        // Same symlink rule as collect: a legacy hub skill may itself
+        // be a symlink, and copying it as a symlink would recreate
+        // the EINVAL failure in the provider. Dereference so the
+        // provider gets a real copy. (A real existing dest is skipped
+        // above, so this never overwrites a provider's own skill.)
+        await cp(path.join(srcDir, s.name), dest, { recursive: true, force: true, dereference: true })
         rows.push({ provider: t.tool, skill: s.name, action: "copied" })
       }
     }

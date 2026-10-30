@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { lstat, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { collectMcp, collectSkills, hubRoot } from "./index"
@@ -46,5 +46,41 @@ describe("global hub collect", () => {
     const meta = JSON.parse(await readFile(path.join(hub, "claude", "mcp-meta.json"), "utf-8"))
     expect(meta.github.hadSecrets).toBe(true)
     expect(mcp.find((m) => m.provider === "claude")?.state).toBe("found")
+  })
+
+  test("symlinked skill is collected as a real copy, and a second collect does not EINVAL", async () => {
+    // Mirrors Windows: skillshare links its skill as a symlink into each
+    // provider's skills folder (e.g. %APPDATA%\skillshare\skills\skillshare).
+    const real = path.join(root, "source", "skillshare")
+    await mkdir(real, { recursive: true })
+    await writeFile(path.join(real, "SKILL.md"), "# skillshare\n")
+    const providerSkills = path.join(home, ".antigravity", "skills")
+    await mkdir(providerSkills, { recursive: true })
+    await symlink(real, path.join(providerSkills, "skillshare"))
+    const targets = [{ tool: "antigravity", skillsPath: providerSkills }]
+    await collectSkills(hub, targets)
+    const dest = path.join(hub, "antigravity", "skills", "skillshare")
+    expect((await lstat(dest)).isSymbolicLink()).toBe(false)
+    expect(await readFile(path.join(dest, "SKILL.md"), "utf-8")).toBe("# skillshare\n")
+    // Second collect must not throw ERR_FS_CP_EINVAL (the reported bug:
+    // cp of a symlink src to a symlink dest resolving to the same folder).
+    await collectSkills(hub, targets)
+    expect((await lstat(dest)).isSymbolicLink()).toBe(false)
+    expect(await readFile(path.join(dest, "SKILL.md"), "utf-8")).toBe("# skillshare\n")
+  })
+
+  test("legacy hub symlink dest is repaired to a real copy on collect", async () => {
+    const real = path.join(root, "source2", "linked")
+    await mkdir(real, { recursive: true })
+    await writeFile(path.join(real, "SKILL.md"), "# linked\n")
+    const providerSkills = path.join(home, ".legacy", "skills")
+    await mkdir(providerSkills, { recursive: true })
+    await symlink(real, path.join(providerSkills, "linked"))
+    const dest = path.join(hub, "legacy", "skills", "linked")
+    await mkdir(path.dirname(dest), { recursive: true })
+    await symlink(real, dest) // what the old cp left in the hub
+    await collectSkills(hub, [{ tool: "legacy", skillsPath: providerSkills }])
+    expect((await lstat(dest)).isSymbolicLink()).toBe(false)
+    expect(await readFile(path.join(dest, "SKILL.md"), "utf-8")).toBe("# linked\n")
   })
 })
