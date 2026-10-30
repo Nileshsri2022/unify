@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import path from "node:path"
-import { agentmemoryArgv, agentmemoryEntryPath } from "./command"
+import { agentmemoryArgv, agentmemoryComposeFile, agentmemoryComposeLog, agentmemoryDataDir, agentmemoryEntryPath } from "./command"
 
 /**
  * Windows regression: npm's `node_modules/.bin/agentmemory` is a POSIX shell
@@ -57,5 +57,50 @@ describe("agentmemoryEntryPath", () => {
       "cli.mjs",
     ])
     expect(got.startsWith(home)).toBe(true)
+  })
+})
+
+/**
+ * agentmemory starts its engine through `iii compose`, and the project's real
+ * failure ("PROJECT_DID_NOT_START", worker stderr) is only written to its
+ * Compose daemon log. unify has to know where that is on each platform.
+ */
+describe("agentmemoryDataDir / compose paths", () => {
+  test("win32: %APPDATA%\\agentmemory (as the package resolves it)", () => {
+    const d = agentmemoryDataDir({
+      home: "C:\\Users\\niles",
+      env: { APPDATA: "C:\\Users\\niles\\AppData\\Roaming" },
+      platform: "win32",
+    })
+    expect(d).toBe(path.join("C:\\Users\\niles\\AppData\\Roaming", "agentmemory"))
+    expect(agentmemoryComposeLog({ home: "C:\\Users\\niles", env: { APPDATA: "C:\\Users\\niles\\AppData\\Roaming" }, platform: "win32" })).toBe(
+      path.join(d, "compose", "compose-daemon.log"),
+    )
+    expect(agentmemoryComposeFile({ home: "C:\\Users\\niles", env: { APPDATA: "C:\\Users\\niles\\AppData\\Roaming" }, platform: "win32" })).toBe(
+      path.join(d, "compose", "worker-compose.yaml"),
+    )
+  })
+
+  test("win32 without APPDATA falls back to ~/.agentmemory", () => {
+    expect(agentmemoryDataDir({ home: "C:\\Users\\n", env: {}, platform: "win32" })).toBe(
+      path.join("C:\\Users\\n", ".agentmemory"),
+    )
+  })
+
+  test("linux honours XDG_DATA_HOME, else ~/.local/share", () => {
+    expect(agentmemoryDataDir({ home: "/home/u", env: { XDG_DATA_HOME: "/xdg" }, platform: "linux" })).toBe(
+      path.join("/xdg", "agentmemory"),
+    )
+    expect(agentmemoryDataDir({ home: "/home/u", env: {}, platform: "linux" })).toBe(
+      path.join("/home/u", ".local", "share", "agentmemory"),
+    )
+  })
+
+  test("AGENTMEMORY_DATA_DIR wins, and --instance nests under it", () => {
+    const env = { AGENTMEMORY_DATA_DIR: "/custom/data", APPDATA: "C:\\AppData" }
+    expect(agentmemoryDataDir({ home: "/home/u", env, platform: "linux" })).toBe("/custom/data")
+    expect(agentmemoryDataDir({ home: "/home/u", env, platform: "win32", instance: 2 })).toBe(
+      path.join("/custom/data", "instance-2"),
+    )
   })
 })

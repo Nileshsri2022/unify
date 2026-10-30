@@ -3,7 +3,7 @@ import { statSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { engineTrace, ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
+import { composeFailureLines, engineTrace, ensureRunning, fatalEngineLine, findComposeLog, probe, stop, tailOf } from "./server"
 
 /**
  * Lifecycle tests use a FAKE agentmemory CLI: a bash supervisor that starts a
@@ -289,5 +289,129 @@ describe("engineTrace", () => {
     expect(engineTrace(logFile, offset)).toEqual([])
     await writeFile(logFile, "iii binary: (not on PATH)\n", { flag: "a" })
     expect(engineTrace(logFile, offset)).toEqual(["iii binary: (not on PATH)"])
+  })
+})
+
+/**
+ * Windows report: engine accepted, then
+ *   "error[PROJECT_DID_NOT_START]: …worker-compose.yaml did not start
+ *    Compose exited with code 1"
+ * The worker's actual error is only in the Compose daemon log
+ * (<dataDir>/compose/compose-daemon.log). unify must read it.
+ */
+describe("compose support", () => {
+  test("composeFailureLines drops box drawing/noise and keeps the tail", async () => {
+    const log = path.join(root, "compose-daemon.log")
+    await writeFile(
+      log,
+      [
+        "\x1b[2m│ starting project\x1b[0m",
+        "  downloading state@0.22.20 …",
+        "error: worker state failed to start",
+        "  spawn cmd /C … exit code 1",
+        "",
+        "error[PROJECT_DID_NOT_START]: worker-compose.yaml did not start",
+      ].join("\n"),
+    )
+    const lines = composeFailureLines(log)
+    expect(lines).toContain("error: worker state failed to start")
+    expect(lines.at(-1)).toContain("PROJECT_DID_NOT_START")
+    expect(lines.join("\n")).not.toContain("downloading")
+    expect(lines.join("\n")).not.toContain("\x1b[")
+  })
+
+  test("missing compose log is empty, not a crash", () => {
+    expect(composeFailureLines(path.join(root, "nope.log"))).toEqual([])
+  })
+
+  test("a Compose failure carries the daemon log into the error", async () => {
+    // stub supervisor: prints agentmemory's compose failure, exits 1
+    const dataDir = path.join(root, "xdg", "agentmemory")
+    await mkdir(path.join(dataDir, "compose"), { recursive: true })
+    await writeFile(
+      path.join(dataDir, "compose", "compose-daemon.log"),
+      [
+        "│ starting",
+        "error: container state: failed to start worker",
+        "error[PROJECT_DID_NOT_START]: /…/worker-compose.yaml did not start",
+      ].join("\n"),
+    )
+    const stub = path.join(root, "compose-fail-agentmemory")
+    await writeFile(
+      stub,
+      "#!/usr/bin/env bash\necho 'stopping engine...'\necho 'error[PROJECT_DID_NOT_START]:'\necho '  worker-compose.yaml did not start'\necho 'Compose exited with code 1'\nexit 1\n",
+      { mode: 0o755 },
+    )
+    const logFile = path.join(root, "compose-fail.log")
+    const err = await ensureRunning({
+      cliPath: stub,
+      home: root,
+      baseUrl: `http://127.0.0.1:${39500 + Math.floor(Math.random() * 400)}`,
+      logFile,
+      readyTimeoutMs: 10000,
+      env: { XDG_DATA_HOME: path.join(root, "xdg") },
+    }).catch((e: Error) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    const message = (err as Error).message
+    expect(message).toContain("compose log (")
+    expect(message).toContain("failed to start worker") // the real cause
+    expect(message).toContain("PROJECT_DID_NOT_START")
+  })
+})
+
+/**
+ * The daemon log is where agentmemory actually put it: engine-state.json names
+ * the file (`~/.agentmemory/compose-<restPort>.log`). An earlier guess at
+ * <dataDir>/compose/compose-daemon.log did not exist on the user's Windows box.
+ */
+describe("findComposeLog", () => {
+  test("uses logFile from engine-state.json", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-am-state-"))
+    await mkdir(path.join(home, ".agentmemory"), { recursive: true })
+    const log = path.join(home, ".agentmemory", "compose-3111.log")
+    await writeFile(log, "error: container http: cannot reach the registry\n")
+    await writeFile(
+      path.join(home, ".agentmemory", "engine-state.json"),
+      JSON.stringify({ kind: "compose", restPort: 3111, logFile: log }),
+    )
+    const found = findComposeLog({ home, baseUrl: "http://127.0.0.1:3111" })
+    expect(found?.path).toBe(log)
+    expect(found?.from).toBe("state")
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("falls back to ~/.agentmemory/compose-<port>.log without a state file", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-am-state2-"))
+    await mkdir(path.join(home, ".agentmemory"), { recursive: true })
+    const log = path.join(home, ".agentmemory", "compose-3111.log")
+    await writeFile(log, "error: container state: exited with code 1\n")
+    const found = findComposeLog({ home, baseUrl: "http://127.0.0.1:3111" })
+    expect(found?.path).toBe(log)
+    expect(found?.from).toBe("convention")
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("null when there is nothing to read (no crash, no invented path)", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-am-state3-"))
+    expect(findComposeLog({ home, baseUrl: "http://127.0.0.1:3111" })).toBeNull()
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("ignores an empty log and moves on to the next candidate", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-am-state4-"))
+    await mkdir(path.join(home, ".agentmemory"), { recursive: true })
+    await writeFile(path.join(home, ".agentmemory", "compose-3111.log"), "")
+    const xdg = path.join(home, "xdg")
+    await mkdir(path.join(xdg, "agentmemory", "compose"), { recursive: true })
+    const fallback = path.join(xdg, "agentmemory", "compose", "compose-daemon.log")
+    await writeFile(fallback, "error: worker failed\n")
+    const found = findComposeLog({
+      home,
+      baseUrl: "http://127.0.0.1:3111",
+      env: { XDG_DATA_HOME: xdg },
+    })
+    expect(found?.path).toBe(fallback)
+    await rm(home, { recursive: true, force: true })
   })
 })
