@@ -31,7 +31,7 @@ export function validateMemoryText(text: string): string {
 
 const SECRET_KEY = /(env|headers|token|apikey|api_key|secret|password|auth)/i
 
-function stripSecrets(value: unknown): unknown {
+export function stripSecrets(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSecrets)
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {}
@@ -44,7 +44,7 @@ function stripSecrets(value: unknown): unknown {
   return value
 }
 
-function hasSecretKey(value: unknown): boolean {
+export function hasSecretKey(value: unknown): boolean {
   if (Array.isArray(value)) return value.some(hasSecretKey)
   if (value && typeof value === "object") {
     return Object.entries(value as Record<string, unknown>).some(
