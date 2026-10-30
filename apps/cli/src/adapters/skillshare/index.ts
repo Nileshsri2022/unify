@@ -18,6 +18,7 @@ import { mkdir, readdir, writeFile, chmod } from "node:fs/promises"
 import type { Runner } from "../runner"
 import { realRunner } from "../runner"
 import { parseSyncJson, parseTargetList, parseVersion } from "./parse"
+import { readMember } from "./archive"
 import { SKILLSHARE_PINNED_VERSION } from "./manifest"
 import { DEFAULT_SKILL_PATHS, KNOWN_TOOLS, detectInstalledTools } from "./tools"
 
@@ -26,6 +27,8 @@ export interface SkillshareAdapterDeps {
   runner: Runner
   /** User home — tool detection, tilde expansion, state dirs. */
   home: string
+  /** unify state dir (default `<home>/.unify`) — backends and cache live here. */
+  unifyHome?: string
   /** Display path for detection results; defaults to resolved binary. */
   binPath?: string
   /** Override source skills dir (default ~/.config/skillshare/skills). */
@@ -38,12 +41,31 @@ export interface SkillshareFullStatus {
   skills: string[]
 }
 
-/** Resolve which skillshare binary to run: explicit > env > managed > PATH. */
-export async function resolveSkillshareBinary(unifyHome: string, explicit?: string): Promise<string> {
+/** Release asset member name — Windows ships `skillshare.exe`. */
+export function skillshareBinName(platform: NodeJS.Platform = process.platform): string {
+  return platform === "win32" ? "skillshare.exe" : "skillshare"
+}
+
+/**
+ * Resolve which skillshare binary to run: explicit > env > managed > PATH.
+ *
+ * Both member names are probed in the managed dir regardless of the current
+ * platform (a WSL/Windows dual setup can hold either), but the native name is
+ * tried first so `unify init` finds what it just installed.
+ */
+export async function resolveSkillshareBinary(
+  unifyHome: string,
+  explicit?: string,
+  platform: NodeJS.Platform = process.platform,
+): Promise<string> {
+  const managedDir = path.join(unifyHome, "backends", "skillshare")
+  const native = skillshareBinName(platform)
+  const other = skillshareBinName(platform === "win32" ? "linux" : "win32")
   const candidates = [
     explicit,
     process.env.SKILLSHARE_BIN,
-    path.join(unifyHome, "backends", "skillshare", "skillshare"),
+    path.join(managedDir, native),
+    path.join(managedDir, other),
   ].filter((x): x is string => Boolean(x))
   for (const c of candidates) {
     if (await isFile(c)) return c
@@ -56,6 +78,11 @@ export class SkillshareAdapter implements BackendAdapter {
 
   constructor(private d: SkillshareAdapterDeps) {}
 
+  /** unify state dir; honours `$UNIFY_HOME` when injected by the registry. */
+  private get stateHome(): string {
+    return this.d.unifyHome ?? path.join(this.d.home, ".unify")
+  }
+
   private get source(): string {
     return this.d.sourceDir ?? path.join(this.d.home, ".config", "skillshare", "skills")
   }
@@ -67,7 +94,7 @@ export class SkillshareAdapter implements BackendAdapter {
     return {
       installed: true,
       version: v.version,
-      path: this.d.binPath ?? (await resolveSkillshareBinary(this.d.home)), // userHome ok: PATH fallback case
+      path: this.d.binPath ?? (await resolveSkillshareBinary(this.stateHome)),
     }
   }
 
@@ -248,13 +275,22 @@ export class SkillshareAdapter implements BackendAdapter {
   /**
    * Download the pinned release, verify SHA256, extract under
    * ~/.unify/backends/skillshare/. Throws on any mismatch/failure.
+   *
+   * Extraction is in-process (node:zlib): stock Windows has no `unzip`, and
+   * the Windows asset is a .zip whose member is `skillshare.exe`. Relying on
+   * external tools is what made `unify init` install "successfully" and then
+   * report the binary as missing.
    */
-  async install(manifest: BackendManifest): Promise<void> {
-    const cacheDir = path.join(this.d.home, ".unify", "cache")
-    const destDir = path.join(this.d.home, ".unify", "backends", "skillshare")
-    const destBin = path.join(destDir, "skillshare")
-    const isZip = manifest.source.endsWith(".zip")
-    const ext = isZip ? "zip" : "tar.gz"
+  async install(
+    manifest: BackendManifest,
+    /** Target platform for the extracted member name (tests exercise win32). */
+    platform: NodeJS.Platform = process.platform,
+  ): Promise<void> {
+    const cacheDir = path.join(this.stateHome, "cache")
+    const destDir = path.join(this.stateHome, "backends", "skillshare")
+    const binName = skillshareBinName(platform)
+    const destBin = path.join(destDir, binName)
+    const ext = manifest.source.endsWith(".zip") ? "zip" : "tar.gz"
 
     let res: Response
     try {
@@ -281,21 +317,23 @@ export class SkillshareAdapter implements BackendAdapter {
     await writeFile(tmp, buf)
     await mkdir(destDir, { recursive: true })
 
-    // NOTE: `-C destDir` must come BEFORE the member name, or tar extracts
-    // into the process CWD (verified empirically).
-    const cmd = isZip
-      ? ["unzip", "-o", tmp, "skillshare*", "-d", destDir]
-      : ["tar", "xzf", tmp, "-C", destDir, "skillshare"]
-    const p = Bun.spawn(cmd, { stdout: "ignore", stderr: "pipe" })
-    const code = await p.exited
-    if (code !== 0) {
-      const err = await new Response(p.stderr).text()
-      throw new Error(`extract failed (${code}): ${err.trim()}`)
+    let data: Uint8Array
+    try {
+      data = readMember(buf, binName)
+    } catch (e) {
+      throw new Error(`extract failed: ${e instanceof Error ? e.message : String(e)}`)
     }
+    if (data.length === 0) throw new Error(`extract failed: ${binName} is empty`)
+    await writeFile(destBin, data)
+    // exec bit is a host-OS concern, not a target-platform one (a posix host
+    // testing the win32 shape still needs it readable as a program)
     if (process.platform !== "win32") await chmod(destBin, 0o755)
 
     const v = await realRunner(destBin)(["--version"])
-    if (v.code !== 0) throw new Error("installed binary failed --version check")
+    if (v.code !== 0) {
+      const why = (v.stderr || v.stdout).trim()
+      throw new Error(`installed binary failed --version check${why ? `: ${why}` : ""}`)
+    }
   }
 }
 

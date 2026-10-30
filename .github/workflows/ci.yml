@@ -33,3 +33,26 @@ jobs:
         run: bun run typecheck
       - name: build
         run: bun run build:dashboard
+
+  windows-unit:
+    # Windows regressions: zip member naming (skillshare.exe), node-based
+    # agentmemory launch, in-process zip/tar.gz extraction, ci.yml parsing.
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: unit tests (platform-independent paths)
+        run: >-
+          bun test
+          apps/cli/src/adapters/skillshare/archive.test.ts
+          apps/cli/src/adapters/skillshare/parse.test.ts
+          apps/cli/src/adapters/agentmemory/command.test.ts
+          apps/cli/src/commands/init.test.ts
+          apps/cli/src/ci-workflow.test.ts
+      - name: build binary
+        run: bun run build:cli
+      - name: "smoke: unify version"
+        run: ./apps/cli/dist/unify.exe version

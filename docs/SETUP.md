@@ -1,7 +1,8 @@
 # Initial setup — clean machine → working dashboard
 
-Verified on Linux x86_64 with Bun 1.4.4 / Node 22 (macOS works the same; Windows
-is untested — symlinked skill targets are the open edge case).
+Verified on Linux x86_64 with Bun 1.4.4 / Node 22; macOS works the same.
+Windows is supported for install/launch since M6 (zip asset with `skillshare.exe`,
+agentmemory started through `node`) — see [Windows notes](#windows-notes).
 
 Every command below is copy-pasteable from the repo root unless noted.
 
@@ -175,6 +176,31 @@ bun run build:cli && bun run build:dashboard
 
 ---
 
+## Windows notes
+
+```powershell
+irm bun.sh/install.ps1 | iex
+git clone https://github.com/Nileshsri2022/unify.git
+cd unify
+bun install
+bun run build:cli
+bun run build:dashboard
+.\apps\cli\dist\unify.exe init
+.\apps\cli\dist\unify.exe ui
+```
+
+- The pinned skillshare release for Windows is a **.zip containing `skillshare.exe`**;
+  it is extracted in-process (no `unzip` needed) to
+  `%USERPROFILE%\.unify\backends\skillshare\skillshare.exe`, and detection looks
+  for the `.exe` name.
+- agentmemory is started as `node <pkg>\dist\cli.mjs` — npm's `.bin\agentmemory`
+  shim is a shell script Windows cannot execute.
+- State lives in `C:\Users\<you>\.unify`; the dashboard is at
+  `http://127.0.0.1:7420`.
+- Running inside WSL is the same as Linux — use the Linux commands above.
+
+---
+
 ## Troubleshooting
 
 | Symptom | What it means | Fix |
@@ -186,7 +212,9 @@ bun run build:cli && bun run build:dashboard
 | `unify ui: config invalid:` | `~/.unify/unify.yaml` failed the zod schema — `unify ui` refuses to start rather than serve half-broken state | fix the file, or `mv ~/.unify/unify.yaml{,.bak}` and re-run `unify init` |
 | `EADDRINUSE` / port busy | 7420 taken | `unify ui --port 7421` or `UNIFY_UI_PORT=7421 unify ui` |
 | Dashboard unreachable from a container | loopback bind | `unify ui --host 0.0.0.0` (no auth — expose deliberately) |
-| `bun: command not found` | Bun not on `PATH` | `export PATH="$HOME/.bun/bin:$PATH"` |
+| `bun: command not found` | Bun not on `PATH` | `export PATH="$HOME/.bun/bin:$PATH"` (Windows: `irm bun.sh/install.ps1 \| iex`) |
+| `unify init: skillshare still not detected after installing` | the binary was written somewhere detection does not look | the message prints the expected path — check it exists, or set `SKILLSHARE_BIN` |
+| `skillshare binary not found — install it or run unify init without --skip-install` | older build where the Windows `.exe` was not detected | rebuild (`bun run build:cli`) and re-run `unify init` |
 | `unify ui: dashboard build not found` | binary copied outside the repo and no dist | `UNIFY_UI_DIST=/path/to/apps/dashboard/dist unify ui`, or run from a checkout |
 
 ---

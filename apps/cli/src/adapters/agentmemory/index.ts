@@ -21,6 +21,7 @@ import {
   type RecallResult,
 } from "./client"
 import { ensureRunning, probe } from "./server"
+import { agentmemoryArgv, agentmemoryEntryPath } from "./command"
 
 export const AGENTMEMORY_PINNED_VERSION = "0.9.31"
 export const AGENTMEMORY_NPM_PACKAGE = "@agentmemory/agentmemory"
@@ -100,6 +101,7 @@ export class AgentmemoryAdapter implements BackendAdapter {
     if (await probe(this.base)) return
     await ensureRunning({
       cliPath: agentmemoryCliPath(this.d.unifyHome),
+      entryPath: agentmemoryEntryPath(this.d.unifyHome),
       home: this.d.home,
       baseUrl: this.base,
       logFile: path.join(this.d.unifyHome, "state", "agentmemory-server.log"),
@@ -334,5 +336,6 @@ export class AgentmemoryAdapter implements BackendAdapter {
 export { probe } from "./server"
 export { ensureRunning, stop } from "./server"
 export type { EnsureRunningOptions } from "./server"
+export { agentmemoryArgv, agentmemoryEntryPath } from "./command"
 export { RestMemoryClient, ServerDownError, AuthError } from "./client"
 export type { MemoryClient, RecallResult } from "./client"
