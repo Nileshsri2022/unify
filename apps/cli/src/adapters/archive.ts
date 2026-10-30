@@ -1,7 +1,8 @@
 import { gunzipSync, inflateRawSync } from "node:zlib"
 
 /**
- * Minimal, dependency-free archive reader for the pinned backend releases.
+ * Minimal, dependency-free archive reader for pinned backend releases
+ * (skillshare .tar.gz/.zip, iii-engine .tar.gz/.zip).
  *
  * `unzip` is not present on a stock Windows install and `tar` is not
  * guaranteed on slim containers, so extraction is done in-process with

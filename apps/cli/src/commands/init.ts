@@ -18,6 +18,7 @@ import {
   skillshareBinName,
   SkillshareAdapter,
 } from "../adapters/skillshare"
+import { engineInstallPath } from "../adapters/agentmemory"
 import { AgentmemoryAdapter } from "../adapters/agentmemory"
 import { AGENTS_MD_TEMPLATE } from "../glue"
 import { readLock, renderSync, writeLastSync, writeLock } from "./state-io"
@@ -52,7 +53,8 @@ export async function attemptInstall(
     return { ok: true }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
-    log(`unify init: ${label} install failed — ${error}`)
+    // one line: the full message can carry a 60-line engine dump
+    log(`unify init: ${label} install failed — ${error.split("\n")[0]}`)
     return { ok: false, error }
   }
 }
@@ -69,6 +71,24 @@ export function skillshareInstallHints(manifestSource?: string, manifestSha?: st
   }
   lines.push("  then re-run: unify init")
   return lines
+}
+
+/**
+ * One-screen guidance when the memory server cannot start. agentmemory's own
+ * "Setup required" box is ~60 decorated lines repeated twice; the user needs the
+ * cause, the fix and the fact that the rest of init is unaffected.
+ */
+export function memoryStartHints(message: string, enginePath: string): string[] {
+  const hints: string[] = []
+  if (/iii-engine|engine/i.test(message)) {
+    hints.push(`  unify normally installs iii-engine automatically → ${enginePath}`)
+    hints.push("  if your network blocks GitHub release assets, see docs/SETUP.md (Windows notes)")
+  }
+  const tail = message.split("Log tail:")[1]?.trim()
+  if (tail) hints.push(`  last log lines:\n${tail.split("\n").slice(-5).map((l) => `    ${l}`).join("\n")}`)
+  hints.push("  memory is unavailable until this is fixed; skills still sync.")
+  hints.push("  retry later with: unify memory save \"ping\"   (or re-run: unify init)")
+  return hints
 }
 
 export const initCommand = defineCommand({
@@ -178,8 +198,21 @@ export const initCommand = defineCommand({
       }
       if (amDet.installed) {
         console.log(`agentmemory ${amDet.version ?? "?"} — ensuring memory server …`)
-        await am.ensureServer()
-        console.log("agentmemory server ready")
+        const started = await attemptInstall(
+          "agentmemory server",
+          () => am.ensureServer(),
+          (line) => console.error(line),
+        )
+        if (started.ok) {
+          console.log("agentmemory server ready")
+        } else {
+          for (const line of memoryStartHints(started.error ?? "", engineInstallPath(userHome))) {
+            console.error(line)
+          }
+          // non-fatal on purpose: skills + config distribution still work, and
+          // memory can be brought up later without re-running the whole init
+          process.exitCode = 1
+        }
       } else if (!args.skipInstall) {
         console.error("agentmemory install failed")
         process.exitCode = 1

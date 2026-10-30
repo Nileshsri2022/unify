@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { ensureRunning, probe, stop } from "./server"
+import { ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
 
 /**
  * Lifecycle tests use a FAKE agentmemory CLI: a bash supervisor that starts a
@@ -115,5 +115,92 @@ describe("agentmemory server lifecycle (fake CLI)", () => {
         readyTimeoutMs: 1500,
       }),
     ).rejects.toThrow(/not ready|timed out/i)
+  })
+})
+
+describe("startup failures are fast and readable", () => {
+  test("supervisor that exits immediately → rejects in ~1s with exit code + log tail", async () => {
+    const logFile = path.join(root, "dies.log")
+    const cli = path.join(root, "agentmemory-dies")
+    await writeFile(cli, '#!/usr/bin/env bash\necho "boom: iii-engine missing" >&2\nexit 3\n', {
+      mode: 0o755,
+    })
+    const started = Date.now()
+    const err = (await ensureRunning({
+      cliPath: cli,
+      home: root,
+      baseUrl: "http://127.0.0.1:1", // nothing there
+      logFile,
+      readyTimeoutMs: 30_000,
+    }).catch((e: unknown) => e as Error)) as Error
+    const elapsed = Date.now() - started
+    expect(err).toBeInstanceOf(Error)
+    // must not wait out the 30s deadline
+    expect(elapsed).toBeLessThan(10_000)
+    expect(err.message).toContain("exited before it was ready")
+    expect(err.message).toContain("boom: iii-engine missing")
+  })
+
+  test("supervisor that stays alive after a fatal engine error → rejects without the full timeout", async () => {
+    const logFile = path.join(root, "hangs.log")
+    const cli = path.join(root, "agentmemory-hangs")
+    await writeFile(
+      cli,
+      '#!/usr/bin/env bash\necho "■  Could not start iii-engine."\nsleep 60\n',
+      { mode: 0o755 },
+    )
+    const started = Date.now()
+    const err = (await ensureRunning({
+      cliPath: cli,
+      home: root,
+      baseUrl: "http://127.0.0.1:1",
+      logFile,
+      readyTimeoutMs: 45_000,
+    }).catch((e: unknown) => e as Error)) as Error
+    const elapsed = Date.now() - started
+    expect(elapsed).toBeLessThan(15_000)
+    expect(err.message).toContain("cannot start")
+    expect(err.message).toContain("iii-engine")
+    // no stack frames in the user-facing message
+    expect(err.message).not.toContain("at ensureRunning")
+  })
+})
+
+describe("tailOf / fatalEngineLine", () => {
+  test("tailOf strips ANSI + box drawing and keeps the actionable tail", async () => {
+    const logFile = path.join(root, "noisy.log")
+    await writeFile(
+      logFile,
+      [
+        "\u001b[?25l│  agentmemory v0.9.31",
+        "╭──────────────────────────╮",
+        "│  Setup required          │",
+        "├──────────────────────────╯",
+        "Install iii-engine v0.25.0 manually",
+        "",
+        "   ",
+      ].join("\n"),
+    )
+    const tail = tailOf(logFile)
+    expect(tail).not.toContain("│")
+    expect(tail).not.toContain("╭")
+    expect(tail).not.toContain("\u001b")
+    expect(tail).toContain("Install iii-engine v0.25.0 manually")
+  })
+
+  test("tailOf on a missing log says so", () => {
+    expect(tailOf(path.join(root, "nope.log"))).toBe("(no log)")
+  })
+
+  test("fatalEngineLine matches real agentmemory failure lines, ignores chatter", async () => {
+    const bad = path.join(root, "fatal.log")
+    await writeFile(bad, "agentmemory v0.9.31\n■  Could not start iii-engine.\n")
+    expect(fatalEngineLine(bad)).toContain("Could not start iii-engine")
+
+    const okay = path.join(root, "okay.log")
+    await writeFile(okay, "agentmemory v0.9.31\nworker ready on :3111\n")
+    expect(fatalEngineLine(okay)).toBeNull()
+
+    expect(fatalEngineLine(path.join(root, "absent.log"))).toBeNull()
   })
 })
