@@ -30,9 +30,11 @@ async function confirm(prompt: string): Promise<boolean> {
   return a === "y" || a === "yes"
 }
 
-export interface InstallAttempt {
+export interface InstallAttempt<T = void> {
   ok: boolean
   error?: string
+  /** Result of the attempted call, when it succeeded and returned something. */
+  value?: T
 }
 
 /**
@@ -43,14 +45,14 @@ export interface InstallAttempt {
  * Bun stack trace from citty's top-level handler. Returns ok/error instead of
  * throwing; the caller decides whether the run can continue.
  */
-export async function attemptInstall(
+export async function attemptInstall<T = void>(
   label: string,
-  install: () => Promise<void>,
+  install: () => Promise<T>,
   log: (line: string) => void = console.error,
-): Promise<InstallAttempt> {
+): Promise<InstallAttempt<T>> {
   try {
-    await install()
-    return { ok: true }
+    const value = await install()
+    return value === undefined ? { ok: true } : { ok: true, value }
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     // one line: the full message can carry a 60-line engine dump
@@ -137,7 +139,9 @@ export const initCommand = defineCommand({
     // 3. Ensure pinned backend binary
     // The registry resolves the binary per call, so a binary installed below is
     // picked up by the very next detect().
-    const reg = await buildRegistry(userHome, home)
+    const reg = await buildRegistry(userHome, home, {
+      agentmemoryLog: (line) => console.log(`  ${line}`),
+    })
     const adapter = reg.get("skillshare") as SkillshareAdapter
     let det = await adapter.detect()
     if (!det.installed && !args.skipInstall) {
@@ -220,9 +224,20 @@ export const initCommand = defineCommand({
     }
 
     // 4. Ensure skillshare state + desired targets (CLI only)
-    const state = await adapter.ensureState(desiredTargets)
-    if (state.initialized) console.log("skillshare initialized (--no-copy, all detected targets)")
-    if (state.added.length > 0) console.log(`targets added: ${state.added.join(", ")}`)
+    //    Never let this escape: an uncaught throw here printed a citty stack
+    //    trace twice and skipped the rest of init.
+    const stateAttempt = await attemptInstall("skillshare state", () =>
+      adapter.ensureState(desiredTargets),
+    )
+    const state = stateAttempt.value
+    if (stateAttempt.ok && state) {
+      if (state.initialized) console.log("skillshare initialized (--no-copy, all detected targets)")
+      if (state.added.length > 0) console.log(`targets added: ${state.added.join(", ")}`)
+    } else {
+      console.error("  skillshare is installed but its state could not be prepared")
+      console.error("  try: skillshare init --discover   (adds newly detected agents)")
+      process.exitCode = 1
+    }
 
     // 5. Dry-run preview
     const dry = await adapter.sync({ dryRun: true })

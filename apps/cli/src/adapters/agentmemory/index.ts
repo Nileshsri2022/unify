@@ -129,17 +129,19 @@ export class AgentmemoryAdapter implements BackendAdapter {
     if (await probe(this.base)) return
 
     const allowProvision = process.env.UNIFY_SKIP_ENGINE_INSTALL !== "1"
-    const engine = engineInstallPath(this.d.home)
-    const enginePresent = await isFile(engine)
 
-    if (allowProvision && process.platform === "win32" && !enginePresent) {
+    // Windows: always verify. ensureEngine() returns immediately when the
+    // pinned binary is present and runs, and reinstalls when it is missing,
+    // corrupt or an old copy from a previous attempt — a stale iii.exe must not
+    // be trusted just because the file exists.
+    if (allowProvision && process.platform === "win32") {
       await this.provisionEngine()
     }
 
     try {
       await this.startSupervisor()
     } catch (e) {
-      const canRetry = allowProvision && !(await isFile(engine))
+      const canRetry = allowProvision && !(await isFile(engineInstallPath(this.d.home)))
       if (!canRetry) {
         throw e instanceof AgentmemoryStartError
           ? e
@@ -155,7 +157,12 @@ export class AgentmemoryAdapter implements BackendAdapter {
 
   private async provisionEngine(): Promise<void> {
     try {
-      await ensureEngine({ home: this.d.home, log: (line) => this.d.log?.(line) })
+      const r = await ensureEngine({ home: this.d.home, log: (line) => this.d.log?.(line) })
+      this.d.log?.(
+        r.installed
+          ? `iii-engine ${r.version ?? ""} installed (${r.path})`.trim()
+          : `iii-engine present (${r.version ?? "?"}) — ${r.path}`,
+      )
     } catch (e) {
       const detail = e instanceof Error ? e.message : String(e)
       throw new AgentmemoryStartError(

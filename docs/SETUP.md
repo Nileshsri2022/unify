@@ -221,6 +221,7 @@ bun run build:dashboard
 | `EADDRINUSE` / port busy | 7420 taken | `unify ui --port 7421` or `UNIFY_UI_PORT=7421 unify ui` |
 | Dashboard unreachable from a container | loopback bind | `unify ui --host 0.0.0.0` (no auth — expose deliberately) |
 | `bun: command not found` | Bun not on `PATH` | `export PATH="$HOME/.bun/bin:$PATH"` (Windows: `irm bun.sh/install.ps1 \| iex`) |
+| `skillshare init failed: ✗ skillshare is already initialized` | older builds: skillshare's global config lives in `%APPDATA%\skillshare\config.yaml` on Windows, so unify's XDG check missed it and re-ran `init` | fixed — "already initialized" is treated as success; on old builds run `unify sync` directly |
 | `unify init: skillshare still not detected after installing` | the binary was written somewhere detection does not look | the message prints the expected path — check it exists, or set `SKILLSHARE_BIN` |
 | `skillshare binary not found — install it or run unify init without --skip-install` | older build where the Windows `.exe` was not detected | rebuild (`bun run build:cli`) and re-run `unify init` |
 | `unify ui: dashboard build not found` | binary copied outside the repo and no dist | `UNIFY_UI_DIST=/path/to/apps/dashboard/dist unify ui`, or run from a checkout |

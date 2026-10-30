@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import type { Runner } from "../runner"
-import { SkillshareAdapter } from "./index"
+import { skillshareConfigPaths, SkillshareAdapter } from "./index"
 
 const FX = (name: string) =>
   readFile(new URL(`../../../testdata/skillshare/0.28.0/${name}`, import.meta.url), "utf8")
@@ -155,5 +155,113 @@ describe("SkillshareAdapter (fixture-backed)", () => {
     const st = await a.status()
     expect(st.installed).toBe(false)
     expect(st.issues[0].fix).toBe("unify init")
+  })
+})
+
+/**
+ * Regression (reported on Windows): a second `unify init` died with
+ *   ERROR skillshare init failed: ✗ skillshare is already initialized
+ *   (global config: C:\Users\niles\AppData\Roaming\skillshare\config.yaml)
+ * because ensureState only looked for the XDG path and treated init's
+ * non-zero "already initialized" as a hard failure.
+ */
+describe("ensureState (already-initialized handling)", () => {
+  const alreadyInit = {
+    code: 1,
+    stdout: "",
+    stderr:
+      "✗ skillshare is already initialized (global config: C:\\Users\\niles\\AppData\\Roaming\\skillshare\\config.yaml). Run 'skillshare init --discover' to add new agents, or 'skillshare init -p' to initialize project-level skills",
+  }
+
+  test("init says 'already initialized' → no throw, targets still ensured", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-sh-init-"))
+    const calls: string[] = []
+    const runner: Runner = async (args) => {
+      calls.push(args.join(" "))
+      const key = args.join(" ")
+      if (key === "init --no-copy --all-targets") return alreadyInit
+      if (key === "target list") return { code: 0, stdout: "", stderr: "" }
+      if (key.startsWith("target add")) return { code: 0, stdout: "", stderr: "" }
+      return { code: 1, stdout: "", stderr: `unhandled: ${key}` }
+    }
+    const a = new SkillshareAdapter({ runner, home, env: {}, platform: "linux" })
+    const r = await a.ensureState(["claude"])
+    expect(r.initialized).toBe(false) // it was already set up, we did not create it
+    expect(r.added).toEqual(["claude"])
+    expect(calls.some((c) => c.startsWith("target add claude"))).toBe(true)
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("other init failures → one-line error, no stack/box dump", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-sh-init2-"))
+    const runner: Runner = async (args) =>
+      args[0] === "init"
+        ? { code: 2, stdout: "", stderr: "✗ permission denied\n│ box line\n│ more box" }
+        : { code: 0, stdout: "", stderr: "" }
+    const a = new SkillshareAdapter({ runner, home, env: {}, platform: "linux" })
+    const err = await a.ensureState(["claude"]).catch((e: Error) => e)
+    expect(err).toBeInstanceOf(Error)
+    expect((err as Error).message).toBe("skillshare init failed: ✗ permission denied")
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("$XDG_CONFIG_HOME is honoured (GitHub runners set it)", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-sh-init4-"))
+    const xdg = path.join(home, "xdg")
+    await mkdir(path.join(xdg, "skillshare"), { recursive: true })
+    await writeFile(path.join(xdg, "skillshare", "config.yaml"), "targets: {}\n")
+    const a = new SkillshareAdapter({
+      home,
+      env: {},
+      platform: "linux",
+      runner: async () => ({ code: 0, stdout: "", stderr: "" }),
+    })
+    expect(await a.isInitialized({}, "linux")).toBe(false)
+    expect(await a.isInitialized({ XDG_CONFIG_HOME: xdg }, "linux")).toBe(true)
+    expect(await a.isInitialized({ APPDATA: home }, "win32")).toBe(false) // no config.yaml there
+    await mkdir(path.join(home, "skillshare"), { recursive: true })
+    await writeFile(path.join(home, "skillshare", "config.yaml"), "targets: {}\n")
+    expect(await a.isInitialized({ APPDATA: home }, "win32")).toBe(true)
+    await rm(home, { recursive: true, force: true })
+  })
+
+  test("existing config (APPDATA or XDG) → init is not run at all", async () => {
+    const home = await mkdtemp(path.join(os.tmpdir(), "unify-sh-init3-"))
+    await mkdir(path.join(home, ".config", "skillshare"), { recursive: true })
+    await writeFile(path.join(home, ".config", "skillshare", "config.yaml"), "targets: {}\n")
+    const calls: string[] = []
+    const a = new SkillshareAdapter({
+      home,
+      env: {},
+      platform: "linux",
+      runner: async (args) => {
+        calls.push(args.join(" "))
+        return args[0] === "target"
+          ? { code: 0, stdout: "", stderr: "" }
+          : { code: 1, stdout: "", stderr: "should not run" }
+      },
+    })
+    expect(await a.isInitialized({}, "linux")).toBe(true) // {} = no $XDG_CONFIG_HOME
+    const r = await a.ensureState([])
+    expect(r.initialized).toBe(false)
+    expect(calls).not.toContain("init --no-copy --all-targets")
+    await rm(home, { recursive: true, force: true })
+  })
+})
+
+describe("skillshareConfigPaths", () => {
+  test("windows: %APPDATA% first, XDG as a fallback", () => {
+    const paths = skillshareConfigPaths("C:\\Users\\n", { APPDATA: "C:\\Users\\n\\AppData\\Roaming" }, "win32")
+    expect(paths[0]).toBe(path.join("C:\\Users\\n\\AppData\\Roaming", "skillshare", "config.yaml"))
+    expect(paths).toHaveLength(2)
+  })
+
+  test("unix: ~/.config or $XDG_CONFIG_HOME", () => {
+    expect(skillshareConfigPaths("/home/u", {}, "linux")).toEqual([
+      "/home/u/.config/skillshare/config.yaml",
+    ])
+    expect(skillshareConfigPaths("/home/u", { XDG_CONFIG_HOME: "/xdg" }, "linux")).toEqual([
+      "/xdg/skillshare/config.yaml",
+    ])
   })
 })
