@@ -45,13 +45,18 @@ export async function buildRegistry(
 ): Promise<AdapterRegistry> {
   const reg = new AdapterRegistry()
 
-  const bin =
-    opts.skillshareBinPath ?? (await resolveSkillshareBinary(unifyHome))
-  const shRunner = opts.skillshareRunner ?? realRunner(bin)
+  const bin = opts.skillshareBinPath ?? (await resolveSkillshareBinary(unifyHome))
+  // Resolve per call, not once: `unify init` installs the binary *after* the
+  // registry is built, and a long-running `unify ui` should pick up a backend
+  // installed while it is running instead of reporting "not installed" forever.
+  const shRunner: Runner =
+    opts.skillshareRunner ??
+    (async (args) => realRunner(await resolveSkillshareBinary(unifyHome, opts.skillshareBinPath))(args))
   reg.register(
     new SkillshareAdapter({
       runner: shRunner,
       home: userHome,
+      unifyHome,
       binPath: bin === "skillshare" ? undefined : bin,
     }),
   )

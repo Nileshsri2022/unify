@@ -10,6 +10,7 @@
 import { openSync, readFileSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
+import { agentmemoryArgv } from "./command"
 
 export async function probe(baseUrl: string, timeoutMs = 3000): Promise<boolean> {
   const base = baseUrl.replace(/\/$/, "")
@@ -30,6 +31,8 @@ export async function probe(baseUrl: string, timeoutMs = 3000): Promise<boolean>
 export interface EnsureRunningOptions {
   /** Path to the agentmemory bin (…/backends/agentmemory/node_modules/.bin/agentmemory). */
   cliPath: string
+  /** JS entry — required on win32, where the npm shim is not executable. */
+  entryPath?: string
   /** User home — passed as $HOME to the spawned server (isolates its state). */
   home: string
   baseUrl: string
@@ -47,7 +50,7 @@ export async function ensureRunning(
 
   await mkdir(path.dirname(opts.logFile), { recursive: true })
   const logFd = openSync(opts.logFile, "a")
-  const child = Bun.spawn([opts.cliPath], {
+  const child = Bun.spawn(agentmemoryArgv(opts.cliPath, opts.entryPath), {
     env: { ...process.env, HOME: opts.home, ...(opts.env ?? {}) },
     stdin: "ignore",
     stdout: logFd,
@@ -92,8 +95,9 @@ export async function stop(
   cliPath: string,
   home: string,
   extraEnv: Record<string, string> = {},
+  entryPath?: string,
 ): Promise<void> {
-  const p = Bun.spawn([cliPath, "stop"], {
+  const p = Bun.spawn([...agentmemoryArgv(cliPath, entryPath), "stop"], {
     env: { ...process.env, HOME: home, ...extraEnv },
     stdin: "ignore",
     stdout: "pipe",
