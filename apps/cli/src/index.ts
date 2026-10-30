@@ -5,6 +5,7 @@ import { statusCommand } from "./commands/status"
 import { syncCommand } from "./commands/sync"
 import { doctorCommand } from "./commands/doctor"
 import { memoryCommand } from "./commands/memory"
+import { profileCommand } from "./commands/profile"
 
 const main = defineCommand({
   meta: {
@@ -19,6 +20,7 @@ const main = defineCommand({
     sync: syncCommand,
     doctor: doctorCommand,
     memory: memoryCommand,
+    profile: profileCommand,
   },
   async run({ rawArgs }) {
     // citty invokes the parent run after a subcommand completes — only show
@@ -26,7 +28,7 @@ const main = defineCommand({
     const first = rawArgs.find((a) => !a.startsWith("-"))
     if (
       first &&
-      ["init", "status", "sync", "doctor", "memory", "version"].includes(first)
+      ["init", "status", "sync", "doctor", "memory", "profile", "version"].includes(first)
     )
       return
     console.log(
@@ -40,6 +42,7 @@ const main = defineCommand({
         "  sync      Sync backends to detected tools",
         "  doctor    Check backend health + config issues",
         "  memory    Save / recall persistent memory (agentmemory)",
+        "  profile   Show or switch the active profile (work / personal)",
         "  version   Print unify version",
         "",
         "Run 'unify --help' for details.",

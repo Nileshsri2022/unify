@@ -6,7 +6,8 @@ import {
   type UnifiedStatus,
   pathsFor,
 } from "@unify/core"
-import { readFile, writeFile } from "node:fs/promises"
+import { mkdir, readFile, writeFile } from "node:fs/promises"
+import path from "node:path"
 
 export interface LastSyncEntry {
   at: string
@@ -42,6 +43,7 @@ export async function readLastSync(home: string): Promise<LastSyncEntry | null> 
 
 export async function writeLastSync(home: string, entry: LastSyncEntry): Promise<void> {
   const p = pathsFor(home).lastSync
+  await mkdir(path.dirname(p), { recursive: true })
   await writeFile(p, JSON.stringify(entry, null, 2) + "\n", "utf8")
 }
 

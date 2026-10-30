@@ -20,7 +20,7 @@ import {
   type MemoryClient,
   type RecallResult,
 } from "./client"
-import { probe } from "./server"
+import { ensureRunning, probe } from "./server"
 
 export const AGENTMEMORY_PINNED_VERSION = "0.9.31"
 export const AGENTMEMORY_NPM_PACKAGE = "@agentmemory/agentmemory"
@@ -82,10 +82,26 @@ export class AgentmemoryAdapter implements BackendAdapter {
     return this.d.nodeRunner ?? realRunner("node")
   }
 
-  private async client(): Promise<MemoryClient> {
+  /** Authenticated REST client (loads ~/.agentmemory/secret). */
+  async client(): Promise<MemoryClient> {
     if (this.d.client) return this.d.client
     const secret = await this.loadSecret()
     return new RestMemoryClient({ baseUrl: this.base, secret })
+  }
+
+  /**
+   * Ensure the memory server is running: probe first, and if down, auto-start
+   * the pinned CLI (detached, log under state/). Throws if it cannot be
+   * brought up within the ready timeout.
+   */
+  async ensureServer(): Promise<void> {
+    if (await probe(this.base)) return
+    await ensureRunning({
+      cliPath: agentmemoryCliPath(this.d.unifyHome),
+      home: this.d.home,
+      baseUrl: this.base,
+      logFile: path.join(this.d.unifyHome, "state", "agentmemory-server.log"),
+    })
   }
 
   private async loadSecret(): Promise<string | undefined> {
@@ -188,12 +204,16 @@ export class AgentmemoryAdapter implements BackendAdapter {
   }
 
   /** Direct memory ops (beyond the BackendAdapter surface). */
-  async save(content: string, concepts: string[] = []): Promise<string> {
-    return (await this.client()).save(content, concepts)
+  async save(
+    content: string,
+    concepts: string[] = [],
+    agentId?: string,
+  ): Promise<string> {
+    return (await this.client()).save(content, concepts, agentId)
   }
 
-  async recall(query: string, limit = 10): Promise<RecallResult[]> {
-    return (await this.client()).recall(query, limit)
+  async recall(query: string, limit = 10, agentId?: string): Promise<RecallResult[]> {
+    return (await this.client()).recall(query, limit, agentId)
   }
 
   async sync(options: SyncOptions): Promise<SyncResult> {

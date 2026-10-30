@@ -39,10 +39,17 @@ export interface MemoryClient {
   health(): Promise<{ status: string; version: string }>
   /** Total indexed memories (index.memoriesIndexed). */
   memoryCount(): Promise<number>
-  /** Save a memory; returns its id. */
-  save(content: string, concepts?: string[]): Promise<string>
-  /** BM25/smart search. */
-  recall(query: string, limit?: number): Promise<RecallResult[]>
+  /**
+   * Save a memory; returns its id.
+   * `agentId` tags the memory with a profile namespace (v0.9.31: body field).
+   */
+  save(content: string, concepts?: string[], agentId?: string): Promise<string>
+  /**
+   * BM25/smart search.
+   * `agentId` scopes the search to a profile namespace — must be sent in the
+   * REQUEST BODY (v0.9.31 ignores the `?agentId=` query param on this endpoint).
+   */
+  recall(query: string, limit?: number, agentId?: string): Promise<RecallResult[]>
 }
 
 export interface RestMemoryClientOptions {
@@ -113,21 +120,25 @@ export class RestMemoryClient implements MemoryClient {
     return d.index?.memoriesIndexed ?? 0
   }
 
-  async save(content: string, concepts: string[] = []): Promise<string> {
+  async save(content: string, concepts: string[] = [], agentId?: string): Promise<string> {
+    const body: Record<string, unknown> = { content, concepts }
+    if (agentId) body.agentId = agentId
     const d = (await this.request("/agentmemory/remember", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content, concepts }),
+      body: JSON.stringify(body),
     })) as { memory?: { id?: string }; success?: boolean }
     if (!d.memory?.id) throw new Error("agentmemory remember: no memory id in response")
     return d.memory.id
   }
 
-  async recall(query: string, limit = 10): Promise<RecallResult[]> {
+  async recall(query: string, limit = 10, agentId?: string): Promise<RecallResult[]> {
+    const body: Record<string, unknown> = { query, limit }
+    if (agentId) body.agentId = agentId
     const d = (await this.request("/agentmemory/smart-search", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ query, limit }),
+      body: JSON.stringify(body),
     })) as {
       results?: { obsId?: string; score?: number; title?: string; type?: string }[]
     }

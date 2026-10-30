@@ -8,16 +8,13 @@ import {
   writeUnify,
 } from "@unify/core"
 import { createInterface } from "node:readline/promises"
+import { readFile, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import { buildRegistry } from "../adapters/registry"
 import { detectInstalledTools, pinnedManifest, SkillshareAdapter } from "../adapters/skillshare"
-import {
-  AgentmemoryAdapter,
-  agentmemoryCliPath,
-  DEFAULT_AGENTMEMORY_BASE,
-  ensureRunning,
-} from "../adapters/agentmemory"
+import { AgentmemoryAdapter } from "../adapters/agentmemory"
+import { AGENTS_MD_TEMPLATE } from "../glue"
 import { readLock, renderSync, writeLastSync, writeLock } from "./state-io"
 
 async function confirm(prompt: string): Promise<boolean> {
@@ -47,6 +44,15 @@ export const initCommand = defineCommand({
     console.log("")
     await ensureHome(home)
     console.log(`unify home: ${home}`)
+
+    // 0. Canonical AGENTS.md template (post-sync glue reads this)
+    const agentsMdFile = path.join(home, "AGENTS.md")
+    try {
+      await readFile(agentsMdFile)
+    } catch {
+      await writeFile(agentsMdFile, AGENTS_MD_TEMPLATE)
+      console.log(`created ${agentsMdFile} (edit it; synced into memory after each unify sync)`)
+    }
 
     // 1. Detect installed AI tools
     const tools = await detectInstalledTools(userHome)
@@ -97,13 +103,8 @@ export const initCommand = defineCommand({
         amDet = await am.detect()
       }
       if (amDet.installed) {
-        console.log(`agentmemory ${amDet.version ?? "?"} — starting memory server …`)
-        await ensureRunning({
-          cliPath: agentmemoryCliPath(home),
-          home: userHome,
-          baseUrl: process.env.AGENTMEMORY_URL || DEFAULT_AGENTMEMORY_BASE,
-          logFile: path.join(home, "state", "agentmemory-server.log"),
-        })
+        console.log(`agentmemory ${amDet.version ?? "?"} — ensuring memory server …`)
+        await am.ensureServer()
         console.log("agentmemory server ready")
       } else if (!args.skipInstall) {
         console.error("agentmemory install failed")

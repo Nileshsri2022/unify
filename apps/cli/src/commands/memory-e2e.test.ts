@@ -75,13 +75,17 @@ const srv = http.createServer((req, res) => {
     if (url.pathname === "/agentmemory/remember") {
       const d = JSON.parse(body);
       const id = "mem_stub_" + ++n;
-      store.push({ id, content: d.content, concepts: d.concepts || [] });
-      return send(200, { memory: { id, content: d.content }, success: true });
+      store.push({ id, content: d.content, concepts: d.concepts || [], agentId: d.agentId || null });
+      return send(200, { memory: { id, content: d.content, agentId: d.agentId || null }, success: true });
     }
     if (url.pathname === "/agentmemory/smart-search") {
       const d = JSON.parse(body);
       const q = (d.query || "").toLowerCase();
-      const hits = store.filter((m) => m.content.toLowerCase().includes(q)).slice(0, d.limit || 10);
+      // v0.9.31 contract: agentId scopes via BODY field (query param ignored)
+      const scoped = d.agentId
+        ? store.filter((m) => m.agentId === d.agentId)
+        : store;
+      const hits = scoped.filter((m) => m.content.toLowerCase().includes(q)).slice(0, d.limit || 10);
       return send(200, { results: hits.map((m) => ({ obsId: m.id, score: 1, title: m.content, type: "fact" })) });
     }
     send(404, { error: "not found" });
@@ -128,15 +132,36 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
+/** Write a unify.yaml with work+personal profiles; `active` = active profile. */
+async function writeConfig(active: string, personalEnabled = true): Promise<void> {
+  const yaml = [
+    "version: 1",
+    `profile: ${active}`,
+    "profiles:",
+    "  work:",
+    "    backends:",
+    "      skillshare: { enabled: true, targets: [claude] }",
+    "      agentmemory: { enabled: true, namespace: work }",
+    "  personal:",
+    "    backends:",
+    "      skillshare: { enabled: true, targets: [gemini] }",
+    `      agentmemory: { enabled: ${personalEnabled}, namespace: personal }`,
+    "",
+  ].join("\n")
+  await writeFile(path.join(unifyHome, "unify.yaml"), yaml, "utf8")
+}
+
 describe("e2e: unify memory save/recall (stub agentmemory)", () => {
-  test("save auto-starts the server and returns an id", async () => {
+  test("save auto-starts the server and tags the active profile (work)", async () => {
+    await writeConfig("work")
     const r = await run(["memory", "save", "roundtrip e2e probe xyz123", "--concepts", "e2e,probe"])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain("ensuring memory server is running")
     expect(r.stdout).toMatch(/saved mem_stub_\d+/)
+    expect(r.stdout).toContain("[profile: work]")
   })
 
-  test("recall finds the saved memory (round-trip)", async () => {
+  test("recall finds the saved memory in the same profile (round-trip)", async () => {
     const r = await run(["memory", "recall", "roundtrip e2e probe"])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain("roundtrip e2e probe xyz123")
@@ -147,5 +172,35 @@ describe("e2e: unify memory save/recall (stub agentmemory)", () => {
     const r = await run(["memory", "recall", "zzz-no-such-memory-zzz"])
     expect(r.code).toBe(0)
     expect(r.stdout).toContain("no memories matched")
+  })
+
+  test("profile isolation: personal recall cannot see work memory", async () => {
+    await writeConfig("personal")
+    const r = await run(["memory", "recall", "roundtrip e2e probe"])
+    expect(r.code).toBe(0)
+    expect(r.stdout).toContain("no memories matched")
+  })
+
+  test("save on personal is scoped, recall on personal sees only personal", async () => {
+    await writeConfig("personal")
+    const s = await run(["memory", "save", "personal hobby note pqrs456"])
+    expect(s.code).toBe(0)
+    expect(s.stdout).toMatch(/saved mem_stub_\d+/)
+    expect(s.stdout).toContain("[profile: personal]")
+
+    const own = await run(["memory", "recall", "personal hobby note"])
+    expect(own.stdout).toContain("personal hobby note pqrs456")
+
+    // still cannot see the work probe
+    const cross = await run(["memory", "recall", "roundtrip e2e probe"])
+    expect(cross.stdout).toContain("no memories matched")
+  })
+
+  test("agentmemory disabled for profile → save exits 1 with a clear message", async () => {
+    await writeConfig("personal", false)
+    const r = await run(["memory", "save", "should not be saved"])
+    expect(r.code).toBe(1)
+    expect(r.stderr).toContain("agentmemory is disabled for profile \"personal\"")
+    expect(r.stdout).not.toMatch(/saved mem_stub_/)
   })
 })

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdir, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import path from "node:path"
-import { activeProfile, defaultConfig, defaultConfigForTools, loadUnify } from "./config"
+import { activeProfile, defaultConfig, defaultConfigForTools, loadUnify, switchProfile } from "./config"
 import { readFile } from "node:fs/promises"
 
 const OK = `
@@ -121,5 +121,85 @@ describe("loadUnifyAt + writeUnify", () => {
     } finally {
       await rm(home, { recursive: true, force: true })
     }
+  })
+})
+
+describe("default profiles", () => {
+  test("defaultConfig ships work + personal, namespaces named after profile", () => {
+    const cfg = defaultConfig()
+    expect(cfg.profile).toBe("work")
+    expect(Object.keys(cfg.profiles).sort()).toEqual(["personal", "work"])
+    expect(cfg.profiles.work.backends.agentmemory.namespace).toBe("work")
+    expect(cfg.profiles.personal.backends.agentmemory.namespace).toBe("personal")
+    expect(cfg.profiles.personal.backends.agentmemory.enabled).toBe(true)
+  })
+
+  test("defaultConfigForTools sets targets on both profiles", () => {
+    const cfg = defaultConfigForTools(["claude", "gemini"])
+    expect(cfg.profiles.work.backends.skillshare.targets).toEqual(["claude", "gemini"])
+    expect(cfg.profiles.personal.backends.skillshare.targets).toEqual(["claude", "gemini"])
+  })
+})
+
+describe("switchProfile", () => {
+  async function withFile(file: string | null, fn: (file: string) => Promise<void>) {
+    const home = await mkdtempSafe()
+    const dir = path.join(home, ".unify")
+    await mkdir(dir, { recursive: true })
+    const f = path.join(dir, "unify.yaml")
+    if (file !== null) await writeFile(f, file, "utf8")
+    try {
+      await fn(f)
+    } finally {
+      await rm(home, { recursive: true, force: true })
+    }
+  }
+
+  const TWO = `
+version: 1
+profile: work
+profiles:
+  work:
+    backends:
+      skillshare: { enabled: true, targets: [claude] }
+      agentmemory: { enabled: true, namespace: work }
+  personal:
+    backends:
+      skillshare: { enabled: true, targets: [gemini] }
+      agentmemory: { enabled: true, namespace: personal }
+`
+
+  test("switches to an existing profile and rewrites the file", async () => {
+    await withFile(TWO, async (f) => {
+      const res = await switchProfile(f, "personal")
+      expect(res.ok).toBe(true)
+      expect(res.config!.profile).toBe("personal")
+      const reloaded = await loadUnifyAt(f)
+      expect(reloaded.errors).toEqual([])
+      expect(reloaded.config.profile).toBe("personal")
+      // untouched fields survive the round-trip
+      expect(reloaded.config.profiles.work.backends.skillshare.targets).toEqual(["claude"])
+    })
+  })
+
+  test("unknown profile → ok:false, file untouched", async () => {
+    await withFile(TWO, async (f) => {
+      const before = await readFile(f, "utf8")
+      const res = await switchProfile(f, "nope")
+      expect(res.ok).toBe(false)
+      expect(res.error).toContain("nope")
+      expect(res.error).toContain("work")
+      expect(res.error).toContain("personal")
+      expect(await readFile(f, "utf8")).toBe(before)
+    })
+  })
+
+  test("missing file → defaults, work is switchable", async () => {
+    await withFile(null, async (f) => {
+      const res = await switchProfile(f, "personal")
+      expect(res.ok).toBe(true)
+      const reloaded = await loadUnifyAt(f)
+      expect(reloaded.config.profile).toBe("personal")
+    })
   })
 })

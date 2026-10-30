@@ -1,8 +1,15 @@
 import { defineCommand } from "citty"
-import { loadUnifyAt, type HealthIssue, unifyHome } from "@unify/core"
+import {
+  activeProfile,
+  isFile,
+  loadUnifyAt,
+  type HealthIssue,
+  unifyHome,
+} from "@unify/core"
 import os from "node:os"
 import path from "node:path"
 import { buildRegistry } from "../adapters/registry"
+import { AGENTS_MD_GLAUE_ACTION } from "../glue"
 import { readLock, renderDoctor } from "./state-io"
 
 export const doctorCommand = defineCommand({
@@ -33,6 +40,20 @@ export const doctorCommand = defineCommand({
           backend: "skillshare",
           message: `lock ${lock.skillshare.version} != installed ${det.version}`,
           fix: "unify init",
+        })
+      }
+    }
+
+    // glue radar: canonical AGENTS.md must exist when the glue action is on
+    if (config.glue["post-sync"].includes(AGENTS_MD_GLAUE_ACTION)) {
+      const ap = activeProfile(config)
+      const agentsMd = path.join(home, "AGENTS.md")
+      if (ap.agentmemory.enabled && !(await isFile(agentsMd))) {
+        issues.push({
+          severity: "warn",
+          backend: "glue",
+          message: "AGENTS.md not found (inject-agents-md-into-memory has nothing to inject)",
+          fix: `create ${agentsMd}`,
         })
       }
     }

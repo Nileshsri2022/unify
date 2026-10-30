@@ -1,5 +1,9 @@
 import { defineCommand } from "citty"
-import { unifyHome as coreUnifyHome } from "@unify/core"
+import {
+  activeProfile,
+  loadUnifyAt,
+  unifyHome as coreUnifyHome,
+} from "@unify/core"
 import os from "node:os"
 import path from "node:path"
 import {
@@ -45,6 +49,27 @@ async function requireReady(userHome: string, unifyHome: string): Promise<Agentm
   return a
 }
 
+/**
+ * Resolve the active profile's memory scope (profile namespace = agentId).
+ * Returns null (and sets exit code 1) when agentmemory is disabled for the
+ * profile, so callers can bail cleanly without an unhandled rejection.
+ */
+async function profileScope(
+  unifyHome: string,
+): Promise<{ profile: string; namespace: string } | null> {
+  const { config, errors } = await loadUnifyAt(path.join(unifyHome, "unify.yaml"))
+  for (const e of errors) console.error(`config: ${e}`)
+  const ap = activeProfile(config)
+  if (!ap.agentmemory.enabled) {
+    console.error(
+      `agentmemory is disabled for profile "${config.profile}" (fix: set profiles.${config.profile}.backends.agentmemory.enabled in unify.yaml)`,
+    )
+    process.exitCode = 1
+    return null
+  }
+  return { profile: config.profile, namespace: ap.agentmemory.namespace }
+}
+
 export const memoryCommand = defineCommand({
   meta: { name: "memory", description: "Save / recall persistent memory (agentmemory)" },
   subCommands: {
@@ -63,13 +88,15 @@ export const memoryCommand = defineCommand({
           process.exitCode = 1
           return
         }
+        const scope = await profileScope(uHome)
+        if (!scope) return
         const a = await requireReady(home, uHome)
         const concepts = (asString(args.concepts) ?? "")
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean)
-        const id = await a.save(text, concepts)
-        console.log(`saved ${id}`)
+        const id = await a.save(text, concepts, scope.namespace)
+        console.log(`saved ${id} [profile: ${scope.profile}]`)
       },
     }),
     recall: defineCommand({
@@ -87,9 +114,11 @@ export const memoryCommand = defineCommand({
           process.exitCode = 1
           return
         }
+        const scope = await profileScope(uHome)
+        if (!scope) return
         const a = await requireReady(home, uHome)
         const limit = asString(args.limit) ? Number(args.limit) : 10
-        const results = await a.recall(query, limit)
+        const results = await a.recall(query, limit, scope.namespace)
         if (results.length === 0) {
           console.log("no memories matched")
           return

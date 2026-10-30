@@ -30,7 +30,7 @@ export const statusCommand = defineCommand({
     } else if (am.backend.issues.some((i) => i.message.includes("not running"))) {
       memoryLine = "not running (fix: unify init)"
     } else {
-      memoryLine = `${am.memory.total} entries (agentmemory v${am.backend.version ?? "?"})`
+      memoryLine = `${am.memory.total} entries (agentmemory v${am.backend.version ?? "?"}, profile: ${config.profile})`
     }
 
     const status: UnifiedStatus = {

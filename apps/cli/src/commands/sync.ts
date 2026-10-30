@@ -3,6 +3,8 @@ import { loadUnifyAt, unifyHome } from "@unify/core"
 import os from "node:os"
 import path from "node:path"
 import { buildRegistry } from "../adapters/registry"
+import type { AgentmemoryAdapter } from "../adapters/agentmemory"
+import { runAgentsMdGlue } from "../glue"
 import { renderSync, writeLastSync } from "./state-io"
 
 export const syncCommand = defineCommand({
@@ -21,7 +23,7 @@ export const syncCommand = defineCommand({
   async run({ args }) {
     const home = unifyHome()
     const userHome = os.homedir()
-    const { errors } = await loadUnifyAt(path.join(home, "unify.yaml"))
+    const { config, errors } = await loadUnifyAt(path.join(home, "unify.yaml"))
     for (const e of errors) console.error(`config: ${e}`)
     if (errors.length > 0) process.exitCode = 1
 
@@ -35,12 +37,21 @@ export const syncCommand = defineCommand({
 
     if (res.error) {
       process.exitCode = 1
-    } else if (!res.dryRun) {
+      return
+    }
+    if (!res.dryRun) {
       await writeLastSync(home, {
         at: new Date().toISOString(),
         backend: res.backend,
         dryRun: false,
         changes: res.changes,
+      })
+      // post-sync glue (never fails the sync)
+      await runAgentsMdGlue({
+        config,
+        userHome,
+        unifyHome: home,
+        adapter: reg.get("agentmemory") as AgentmemoryAdapter,
       })
     }
   },

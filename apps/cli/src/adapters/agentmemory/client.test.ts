@@ -8,6 +8,9 @@ const FX = (name: string) =>
 const SECRET = "test-secret"
 let server: ReturnType<typeof Bun.serve>
 let base: string
+let capturedRemember: Record<string, unknown> | null = null
+let capturedSearch: Record<string, unknown> | null = null
+let capturedSearchUrl: string | null = null
 
 beforeAll(async () => {
   const livez = await FX("livez.json")
@@ -33,11 +36,15 @@ beforeAll(async () => {
           return Response.json(JSON.parse(status))
         case "/agentmemory/remember": {
           const body = await req.json()
+          capturedRemember = body
           if (!body.content) return new Response("content required", { status: 400 })
           return Response.json(JSON.parse(remember))
         }
-        case "/agentmemory/smart-search":
+        case "/agentmemory/smart-search": {
+          capturedSearch = await req.json()
+          capturedSearchUrl = req.url
           return Response.json(JSON.parse(smartSearch))
+        }
         default:
           return new Response("not found", { status: 404 })
       }
@@ -98,5 +105,23 @@ describe("RestMemoryClient (fixture-shaped mock server)", () => {
   test("connection refused → ServerDownError", async () => {
     const down = new RestMemoryClient({ baseUrl: "http://127.0.0.1:1", secret: SECRET })
     await expect(down.livez()).rejects.toBeInstanceOf(ServerDownError)
+  })
+})
+
+describe("RestMemoryClient: agentId (profile namespace)", () => {
+  test("save: agentId in body when provided, omitted when not", async () => {
+    await client().save("x", ["a"], "work")
+    expect(capturedRemember?.agentId).toBe("work")
+    await client().save("y")
+    expect(capturedRemember).not.toHaveProperty("agentId")
+  })
+
+  test("recall: agentId in body (NOT query param) when provided, omitted when not", async () => {
+    await client().recall("q", 5, "personal")
+    expect(capturedSearch?.agentId).toBe("personal")
+    // server ignores ?agentId= on smart-search — scope must ride in the body only
+    expect(capturedSearchUrl).not.toContain("agentId=")
+    await client().recall("q")
+    expect(capturedSearch).not.toHaveProperty("agentId")
   })
 })

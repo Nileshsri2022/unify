@@ -165,6 +165,35 @@ describe("e2e: unify doctor (stub skillshare)", () => {
     expect(stdout).toContain("lock 0.27.0 != installed 0.28.0")
     await rm(lockPath, { force: true })
   })
+
+  test("glue enabled but AGENTS.md missing → WARN (glue radar)", async () => {
+    const cfgPath = path.join(unifyHome, "unify.yaml")
+    const saved = await readFile(cfgPath, "utf8").catch(() => null)
+    await writeFile(
+      cfgPath,
+      [
+        "version: 1",
+        "profile: work",
+        "profiles:",
+        "  work:",
+        "    backends:",
+        "      skillshare: { enabled: true, targets: [claude] }",
+        "      agentmemory: { enabled: true, namespace: work }",
+        "glue:",
+        "  post-sync: [inject-agents-md-into-memory]",
+        "",
+      ].join("\n"),
+    )
+    await rm(path.join(unifyHome, "AGENTS.md"), { force: true })
+    const { code, stdout } = await run(["doctor"])
+    expect(stdout).toContain("AGENTS.md not found")
+    expect(stdout).toContain("fix: ")
+    expect(stdout).toContain("AGENTS.md")
+    // glue warn is a warn, not an error — but agentmemory-not-installed is an error
+    expect(code).toBe(1)
+    if (saved !== null) await writeFile(cfgPath, saved)
+    else await rm(cfgPath, { force: true })
+  })
 })
 
 describe("e2e: unify sync --dry-run (stub skillshare)", () => {

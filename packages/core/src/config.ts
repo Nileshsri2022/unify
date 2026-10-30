@@ -61,6 +61,12 @@ export function defaultConfig(): UnifyConfig {
           agentmemory: { enabled: true, namespace: "work" },
         },
       },
+      personal: {
+        backends: {
+          skillshare: { enabled: true },
+          agentmemory: { enabled: true, namespace: "personal" },
+        },
+      },
     },
     glue: { "post-sync": [] },
     secrets: {},
@@ -111,10 +117,10 @@ export async function loadUnifyAt(file: string): Promise<LoadResult> {
   const config = parsed.data as UnifyConfig
   const errors: string[] = []
 
-  if (config.profile !== "work" || !(config.profile in config.profiles)) {
+  if (Object.keys(config.profiles).length > 0 && !(config.profile in config.profiles)) {
     const available = Object.keys(config.profiles)
     errors.push(
-      `unknown profile "${config.profile}" — available: ${available.join(", ") || "(none)"}`,
+      `unknown profile "${config.profile}" — available: ${available.join(", ")}`,
     )
   }
 
@@ -128,11 +134,44 @@ export async function loadUnify(homeDir: string): Promise<LoadResult> {
   return loadUnifyAt(path.join(homeDir, ".unify", "unify.yaml"))
 }
 
-/** Default config where the work profile's skillshare targets = detected tools. */
+/** Default config where both profiles' skillshare targets = detected tools. */
 export function defaultConfigForTools(tools: string[]): UnifyConfig {
   const cfg = defaultConfig()
-  cfg.profiles.work.backends.skillshare.targets = tools.length > 0 ? tools : ["claude"]
+  const targets = tools.length > 0 ? tools : ["claude"]
+  cfg.profiles.work.backends.skillshare.targets = targets
+  cfg.profiles.personal.backends.skillshare.targets = targets
   return cfg
+}
+
+export interface SwitchProfileResult {
+  ok: boolean
+  config?: UnifyConfig
+  error?: string
+}
+
+/**
+ * Switch the active profile in a unify.yaml on disk.
+ * Unknown profile → ok:false (file untouched, error lists available profiles).
+ * Missing file → defaults are materialized first (so both default profiles exist).
+ */
+export async function switchProfile(
+  file: string,
+  name: string,
+): Promise<SwitchProfileResult> {
+  const { config, errors } = await loadUnifyAt(file)
+  if (errors.length > 0) {
+    return { ok: false, error: `invalid unify.yaml: ${errors.join("; ")}` }
+  }
+  if (!(name in config.profiles)) {
+    const available = Object.keys(config.profiles)
+    return {
+      ok: false,
+      error: `unknown profile "${name}" — available: ${available.join(", ") || "(none)"}`,
+    }
+  }
+  config.profile = name
+  await writeUnify(config, path.dirname(file))
+  return { ok: true, config }
 }
 
 export interface WriteUnifyOptions {
