@@ -24,6 +24,48 @@ async function confirm(prompt: string): Promise<boolean> {
   return a === "y" || a === "yes"
 }
 
+export interface InstallAttempt {
+  ok: boolean
+  error?: string
+}
+
+/**
+ * Run a backend install without letting the error escape.
+ *
+ * `unify init` is the first command a new user runs, so a blocked download
+ * (proxy, firewall, TLS interception) must print an actionable hint — not a
+ * Bun stack trace from citty's top-level handler. Returns ok/error instead of
+ * throwing; the caller decides whether the run can continue.
+ */
+export async function attemptInstall(
+  label: string,
+  install: () => Promise<void>,
+  log: (line: string) => void = console.error,
+): Promise<InstallAttempt> {
+  try {
+    await install()
+    return { ok: true }
+  } catch (e) {
+    const error = e instanceof Error ? e.message : String(e)
+    log(`unify init: ${label} install failed — ${error}`)
+    return { ok: false, error }
+  }
+}
+
+/** Actionable lines for a failed skillshare download (uses the pinned asset). */
+export function skillshareInstallHints(manifestSource?: string, manifestSha?: string): string[] {
+  const lines = [
+    "  check: this machine can reach github.com release assets (proxy / firewall / TLS interception)",
+  ]
+  if (manifestSource) {
+    lines.push(`  manual: download ${manifestSource}`)
+    if (manifestSha) lines.push(`          verify sha256 ${manifestSha}`)
+    lines.push("          extract it to ~/.unify/backends/skillshare/skillshare (chmod +x)")
+  }
+  lines.push("  then re-run: unify init")
+  return lines
+}
+
 export const initCommand = defineCommand({
   meta: {
     name: "init",
@@ -73,11 +115,22 @@ export const initCommand = defineCommand({
     let det = await adapter.detect()
     if (!det.installed && !args.skipInstall) {
       console.log("Installing pinned skillshare …")
-      const manifest = pinnedManifest()
-      await adapter.install(manifest)
-      const lock = (await readLock(home)) ?? {}
-      lock["skillshare"] = manifest
-      await writeLock(home, lock)
+      let source: string | undefined
+      let sha: string | undefined
+      const attempt = await attemptInstall("skillshare", async () => {
+        const manifest = pinnedManifest()
+        source = manifest.source
+        sha = manifest.sha256
+        await adapter.install(manifest)
+        const lock = (await readLock(home)) ?? {}
+        lock["skillshare"] = manifest
+        await writeLock(home, lock)
+      })
+      if (!attempt.ok) {
+        for (const line of skillshareInstallHints(source, sha)) console.error(line)
+        process.exitCode = 1
+        return
+      }
       det = await adapter.detect()
     }
     if (!det.installed) {
@@ -95,11 +148,18 @@ export const initCommand = defineCommand({
       let amDet = await am.detect()
       if (!amDet.installed && !args.skipInstall) {
         console.log("Installing pinned agentmemory …")
-        const amManifest = am.manifest()
-        await am.install(amManifest)
-        const lock = (await readLock(home)) ?? {}
-        lock["agentmemory"] = amManifest
-        await writeLock(home, lock)
+        const attempt = await attemptInstall("agentmemory", async () => {
+          const amManifest = am.manifest()
+          await am.install(amManifest)
+          const lock = (await readLock(home)) ?? {}
+          lock["agentmemory"] = amManifest
+          await writeLock(home, lock)
+        })
+        if (!attempt.ok) {
+          console.error("  check: npm can reach registry.npmjs.org (proxy / registry config)")
+          console.error("  skillshare sync will still run; fix and re-run: unify init")
+          process.exitCode = 1
+        }
         amDet = await am.detect()
       }
       if (amDet.installed) {
