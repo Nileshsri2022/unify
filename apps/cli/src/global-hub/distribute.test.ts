@@ -1,0 +1,55 @@
+import { afterAll, beforeAll, describe, expect, test } from "bun:test"
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import os from "node:os"
+import path from "node:path"
+import { distributeMcp, distributeSkills } from "./distribute"
+
+let root: string
+let hub: string
+let targets: { tool: string; skillsPath: string }[]
+
+beforeAll(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), "unify-hub-dist-"))
+  hub = path.join(root, "hub")
+  const claudeSkills = path.join(hub, "claude", "skills", "a")
+  await mkdir(claudeSkills, { recursive: true })
+  await writeFile(path.join(claudeSkills, "SKILL.md"), "# a\n")
+  await mkdir(path.join(hub, "claude"), { recursive: true })
+  await writeFile(
+    path.join(hub, "claude", "mcp.json"),
+    JSON.stringify({ mcpServers: { github: { command: "npx" } } }),
+  )
+  const gemini = path.join(root, "gemini-skills")
+  const cursor = path.join(root, "cursor-skills", "a")
+  await mkdir(gemini, { recursive: true })
+  await mkdir(cursor, { recursive: true })
+  await writeFile(path.join(cursor, "SKILL.md"), "# native cursor a\n")
+  targets = [
+    { tool: "claude", skillsPath: path.join(root, "claude-skills") },
+    { tool: "gemini", skillsPath: gemini },
+    { tool: "cursor", skillsPath: path.join(root, "cursor-skills") },
+  ]
+})
+
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true })
+})
+
+describe("global hub distribute", () => {
+  test("copies hub skill to empty provider, skips collision, merges MCP without overwriting", async () => {
+    const rows = await distributeSkills(hub, targets)
+    expect(await readFile(path.join(root, "gemini-skills", "a", "SKILL.md"), "utf-8")).toBe("# a\n")
+    expect(rows.find((r) => r.provider === "gemini" && r.skill === "a")?.action).toBe("copied")
+    expect(rows.find((r) => r.provider === "cursor" && r.skill === "a")?.action).toBe("skipped")
+    expect(await readFile(path.join(root, "cursor-skills", "a", "SKILL.md"), "utf-8")).toBe("# native cursor a\n")
+
+    const home = path.join(root, "home")
+    await mkdir(path.join(home, ".cursor"), { recursive: true })
+    await writeFile(path.join(home, ".cursor", "mcp.json"), JSON.stringify({ mcpServers: { files: { command: "f" } } }))
+    const mcp = await distributeMcp(hub, home, [{ tool: "cursor", configPath: path.join(home, ".cursor", "mcp.json") }])
+    const target = JSON.parse(await readFile(path.join(home, ".cursor", "mcp.json"), "utf-8"))
+    expect(target.mcpServers.github.command).toBe("npx")
+    expect(target.mcpServers.files.command).toBe("f")
+    expect(mcp[0].action).toBe("merged")
+  })
+})

@@ -11,6 +11,7 @@ import { discoverCommand } from "./commands/discover"
 import { importSkillCommand } from "./commands/import-skill"
 import { importMcpCommand } from "./commands/import-mcp"
 import { importMemoryCommand } from "./commands/import-memory"
+import { hubCommand } from "./commands/hub"
 
 const main = defineCommand({
   meta: {
@@ -31,6 +32,7 @@ const main = defineCommand({
     "import-skill": importSkillCommand,
     "import-mcp": importMcpCommand,
     "import-memory": importMemoryCommand,
+    hub: hubCommand,
   },
   async run({ rawArgs }) {
     // citty invokes the parent run after a subcommand completes — only show
@@ -38,7 +40,7 @@ const main = defineCommand({
     const first = rawArgs.find((a) => !a.startsWith("-"))
     if (
       first &&
-      ["init", "status", "sync", "doctor", "memory", "profile", "ui", "version", "discover", "import-skill", "import-mcp", "import-memory"].includes(first)
+      ["init", "status", "sync", "doctor", "memory", "profile", "ui", "version", "discover", "import-skill", "import-mcp", "import-memory", "hub"].includes(first)
     )
       return
     console.log(
@@ -58,6 +60,7 @@ const main = defineCommand({
         "  import-skill  Import one discovered skill into the shared source",
         "  import-mcp  Import one MCP server, secrets stripped",
         "  import-memory  Import one memory from a file",
+        "  hub  Global hub: collect/sync/watch per-provider skills+MCP",
         "  version   Print unify version",
         "",
         "Run 'unify --help' for details.",
