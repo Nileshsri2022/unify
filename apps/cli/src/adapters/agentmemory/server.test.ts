@@ -3,7 +3,7 @@ import { statSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { engineTrace, ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
+import { composeFailureLines, engineTrace, ensureRunning, fatalEngineLine, probe, stop, tailOf } from "./server"
 
 /**
  * Lifecycle tests use a FAKE agentmemory CLI: a bash supervisor that starts a
@@ -289,5 +289,73 @@ describe("engineTrace", () => {
     expect(engineTrace(logFile, offset)).toEqual([])
     await writeFile(logFile, "iii binary: (not on PATH)\n", { flag: "a" })
     expect(engineTrace(logFile, offset)).toEqual(["iii binary: (not on PATH)"])
+  })
+})
+
+/**
+ * Windows report: engine accepted, then
+ *   "error[PROJECT_DID_NOT_START]: …worker-compose.yaml did not start
+ *    Compose exited with code 1"
+ * The worker's actual error is only in the Compose daemon log
+ * (<dataDir>/compose/compose-daemon.log). unify must read it.
+ */
+describe("compose support", () => {
+  test("composeFailureLines drops box drawing/noise and keeps the tail", async () => {
+    const log = path.join(root, "compose-daemon.log")
+    await writeFile(
+      log,
+      [
+        "\x1b[2m│ starting project\x1b[0m",
+        "  downloading state@0.22.20 …",
+        "error: worker state failed to start",
+        "  spawn cmd /C … exit code 1",
+        "",
+        "error[PROJECT_DID_NOT_START]: worker-compose.yaml did not start",
+      ].join("\n"),
+    )
+    const lines = composeFailureLines(log)
+    expect(lines).toContain("error: worker state failed to start")
+    expect(lines.at(-1)).toContain("PROJECT_DID_NOT_START")
+    expect(lines.join("\n")).not.toContain("downloading")
+    expect(lines.join("\n")).not.toContain("\x1b[")
+  })
+
+  test("missing compose log is empty, not a crash", () => {
+    expect(composeFailureLines(path.join(root, "nope.log"))).toEqual([])
+  })
+
+  test("a Compose failure carries the daemon log into the error", async () => {
+    // stub supervisor: prints agentmemory's compose failure, exits 1
+    const dataDir = path.join(root, "xdg", "agentmemory")
+    await mkdir(path.join(dataDir, "compose"), { recursive: true })
+    await writeFile(
+      path.join(dataDir, "compose", "compose-daemon.log"),
+      [
+        "│ starting",
+        "error: container state: failed to start worker",
+        "error[PROJECT_DID_NOT_START]: /…/worker-compose.yaml did not start",
+      ].join("\n"),
+    )
+    const stub = path.join(root, "compose-fail-agentmemory")
+    await writeFile(
+      stub,
+      "#!/usr/bin/env bash\necho 'stopping engine...'\necho 'error[PROJECT_DID_NOT_START]:'\necho '  worker-compose.yaml did not start'\necho 'Compose exited with code 1'\nexit 1\n",
+      { mode: 0o755 },
+    )
+    const logFile = path.join(root, "compose-fail.log")
+    const err = await ensureRunning({
+      cliPath: stub,
+      home: root,
+      baseUrl: `http://127.0.0.1:${39500 + Math.floor(Math.random() * 400)}`,
+      logFile,
+      readyTimeoutMs: 10000,
+      env: { XDG_DATA_HOME: path.join(root, "xdg") },
+    }).catch((e: Error) => e)
+
+    expect(err).toBeInstanceOf(Error)
+    const message = (err as Error).message
+    expect(message).toContain("compose log (")
+    expect(message).toContain("failed to start worker") // the real cause
+    expect(message).toContain("PROJECT_DID_NOT_START")
   })
 })

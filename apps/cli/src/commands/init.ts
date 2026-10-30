@@ -80,25 +80,39 @@ export function skillshareInstallHints(manifestSource?: string, manifestSha?: st
  * "Setup required" box is ~60 decorated lines repeated twice; the user needs the
  * cause, the fix and the fact that the rest of init is unaffected.
  */
-export function memoryStartHints(message: string, enginePath: string): string[] {
-  const hints: string[] = []
+/** Map the Compose daemon's own error text to the thing the user must fix. */
+export function composeFix(text: string): string {
+  if (/cannot reach the registry|could not download|api\.workers\.iii\.dev|dns|ECONNREFUSED|ETIMEDOUT/i.test(text)) {
+    return "agentmemory's engine works, but its worker packages (state/http) download from api.workers.iii.dev — allow that host (proxy/VPN/firewall), then retry"
+  }
+  if (/exit code 1|failed to start|spawn/i.test(text)) {
+    return "a worker container failed to start; the lines above are its error — docs/SETUP.md (Windows notes) has the manual engine route"
+  }
+  return "fix what the container reports, then retry"
+}
 
-  // agentmemory's own view of the engine (emitted under --verbose by unify).
-  // This is the only evidence for "it is installed but I will not use it".
+export function memoryStartHints(message: string, enginePath: string): string[] {
+  // Split the message into its labelled sections: agentmemory's own engine
+  // verdict, the Compose daemon log, and the supervisor's log tail.
   const traceAt = message.indexOf("engine trace:")
   const trace =
-    traceAt >= 0
-      ? message.slice(traceAt + "engine trace:".length).trim().split("\n").filter(Boolean)
-      : []
-  const withoutTrace = traceAt >= 0 ? message.slice(0, traceAt) : message
+    traceAt >= 0 ? message.slice(traceAt + "engine trace:".length).trim().split("\n").filter(Boolean) : []
+  const afterTrace = traceAt >= 0 ? message.slice(0, traceAt) : message
+
+  const composeAt = afterTrace.indexOf("compose log (")
+  const compose = composeAt >= 0 ? afterTrace.slice(composeAt).trim().split("\n").filter(Boolean) : []
+  const head = composeAt >= 0 ? afterTrace.slice(0, composeAt) : afterTrace
+
+  const hints: string[] = []
 
   const installFailed = /could not be installed|not installed|no iii-engine build|refusing to install/i.test(
-    withoutTrace,
+    head,
   )
+  const engineRejected = trace.length > 0 || /iii-engine/i.test(head)
   if (installFailed) {
     hints.push(`  unify normally installs iii-engine automatically → ${enginePath}`)
     hints.push("  if your network blocks GitHub release assets, see docs/SETUP.md (Windows notes)")
-  } else if (/iii-engine|engine/i.test(withoutTrace)) {
+  } else if (engineRejected) {
     hints.push(`  iii-engine is installed → ${enginePath}`)
     hints.push("  but agentmemory will not use it; the check below is the reason")
     hints.push("  UNIFY_SKIP_ENGINE_INSTALL=1 if you install iii yourself; docs/SETUP.md has the rest")
@@ -113,7 +127,14 @@ export function memoryStartHints(message: string, enginePath: string): string[] 
     )
   }
 
-  const tail = withoutTrace.split("Log tail:")[1]?.trim()
+  // The Compose daemon log is where "did not start" actually explains itself.
+  if (compose.length > 0) {
+    hints.push(`  ${compose[0]}`)
+    hints.push(compose.slice(1).slice(-5).map((l) => `    ${l}`).join("\n"))
+    hints.push(`  ${composeFix(compose.join("\n"))}`)
+  }
+
+  const tail = head.split("Log tail:")[1]?.trim()
   if (tail) hints.push(`  last log lines:\n${tail.split("\n").slice(-5).map((l) => `    ${l}`).join("\n")}`)
 
   hints.push("  memory is unavailable until this is fixed; skills still sync.")

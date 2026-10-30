@@ -37,3 +37,48 @@ export function agentmemoryArgv(
   if (platform === "win32" && entryPath) return ["node", entryPath]
   return [cliPath]
 }
+
+/**
+ * agentmemory's data directory, where it writes the Compose project it starts
+ * alongside the engine. Mirrors resolveDataDir()/platformDefaultDataDir() in
+ * @agentmemory/agentmemory@0.9.31: $AGENTMEMORY_DATA_DIR wins, then %APPDATA%,
+ * then XDG_DATA_HOME / macOS Application Support.
+ */
+export function agentmemoryDataDir(opts: {
+  home: string
+  env?: NodeJS.ProcessEnv
+  platform?: NodeJS.Platform
+  instance?: number
+}): string {
+  const env = opts.env ?? process.env
+  const platform = opts.platform ?? process.platform
+  const fromEnv = env.AGENTMEMORY_DATA_DIR
+  const base = (() => {
+    if (fromEnv && path.isAbsolute(fromEnv)) return fromEnv
+    if (platform === "win32") {
+      return env.APPDATA ? path.join(env.APPDATA, "agentmemory") : path.join(opts.home, ".agentmemory")
+    }
+    if (platform === "darwin") {
+      return path.join(opts.home, "Library", "Application Support", "agentmemory")
+    }
+    const xdg = env.XDG_DATA_HOME
+    if (xdg && path.isAbsolute(xdg)) return path.join(xdg, "agentmemory")
+    return path.join(opts.home, ".local", "share", "agentmemory")
+  })()
+  return opts.instance && opts.instance > 0 ? path.join(base, `instance-${opts.instance}`) : base
+}
+
+/**
+ * The Compose daemon's own log. agentmemory starts the engine through
+ * `iii compose` (workers state@0.22.20 + http@0.22.7 + the agentmemory worker),
+ * and its failures ("did not start", worker stderr) only ever appear here —
+ * agentmemory itself prints just "Compose exited with code 1".
+ */
+export function agentmemoryComposeLog(opts: Parameters<typeof agentmemoryDataDir>[0]): string {
+  return path.join(agentmemoryDataDir(opts), "compose", "compose-daemon.log")
+}
+
+/** The generated Compose project (useful in messages). */
+export function agentmemoryComposeFile(opts: Parameters<typeof agentmemoryDataDir>[0]): string {
+  return path.join(agentmemoryDataDir(opts), "compose", "worker-compose.yaml")
+}

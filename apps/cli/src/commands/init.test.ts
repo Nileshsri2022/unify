@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { attemptInstall, memoryStartHints, skillshareInstallHints } from "./init"
+import { attemptInstall, composeFix, memoryStartHints, skillshareInstallHints } from "./init"
 
 /**
  * `unify init` is the first command a new user runs. A failed backend install
@@ -80,5 +80,41 @@ describe("memoryStartHints", () => {
   test("works for a plain supervisor failure", () => {
     const hints = memoryStartHints("agentmemory exited before it was ready (exit 1).", "/h/.agentmemory/bin/iii")
     expect(hints.join("\n")).toContain("memory is unavailable until this is fixed")
+  })
+})
+
+describe("compose failures", () => {
+  test("composeFix names the registry host for download failures", () => {
+    expect(
+      composeFix("container 'http': cannot reach the registry at https://api.workers.iii.dev: getaddrinfo ENOTFOUND"),
+    ).toContain("api.workers.iii.dev")
+    expect(composeFix("container 'state': could not download https://…/state.zip: timed out")).toContain(
+      "api.workers.iii.dev",
+    )
+    expect(composeFix("container 'agentmemory': exited with exit code 1")).toContain("failed to start")
+    expect(composeFix("something else")).toBe("fix what the container reports, then retry")
+  })
+
+  // the real Windows report: engine accepted, then PROJECT_DID_NOT_START
+  test("a PROJECT_DID_NOT_START message shows the compose log, not an engine complaint", () => {
+    const message = [
+      "agentmemory exited before it was ready (exit 1). Log tail:",
+      "stopping engine...",
+      "error[PROJECT_DID_NOT_START]:",
+      "  worker-compose.yaml did not start",
+      "Compose exited with code 1",
+      "compose log (C:/Users/niles/AppData/Roaming/agentmemory/compose/compose-daemon.log):",
+      "container 'http': cannot reach the registry at https://api.workers.iii.dev: getaddrinfo ENOTFOUND",
+    ].join("\n")
+    const hints = memoryStartHints(message, "C:\\Users\\niles\\.agentmemory\\bin\\iii.exe")
+    const text = hints.join("\n")
+
+    expect(text).toContain("compose-daemon.log")
+    expect(text).toContain("cannot reach the registry")
+    expect(text).toContain("api.workers.iii.dev") // actionable fix
+    expect(text).toContain("last log lines")
+    expect(text).toContain("skills still sync")
+    // the engine is fine here — do not claim it was not installed/used
+    expect(text).not.toContain("unify normally installs iii-engine automatically")
   })
 })
