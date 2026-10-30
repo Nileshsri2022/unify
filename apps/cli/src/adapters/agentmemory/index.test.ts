@@ -3,7 +3,11 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
 import type { Runner } from "../runner"
-import { AgentmemoryAdapter, agentmemoryCliPath } from "./index"
+import {
+  AGENTMEMORY_PINNED_VERSION,
+  AgentmemoryAdapter,
+  agentmemoryCliPath,
+} from "./index"
 
 const SECRET = "adapter-secret"
 const PKG = "@agentmemory/agentmemory"
@@ -74,7 +78,7 @@ let COUNT = 0
 const setCount = (n: number) => {
   COUNT = n
 }
-let HEALTH_VERSION = "0.9.31"
+let HEALTH_VERSION = AGENTMEMORY_PINNED_VERSION
 const setHealthVersion = (v: string) => {
   HEALTH_VERSION = v
 }
@@ -100,7 +104,7 @@ describe("AgentmemoryAdapter (mock server + fake runners)", () => {
     setCount(0)
     const det = await adapter().detect()
     expect(det.installed).toBe(true)
-    expect(det.version).toBe("0.9.31")
+    expect(det.version).toBe(HEALTH_VERSION)
     expect(det.path).toContain("backends/agentmemory")
   })
 
@@ -126,8 +130,8 @@ describe("AgentmemoryAdapter (mock server + fake runners)", () => {
     const fs = await adapter().fullStatus()
     expect(fs.backend.installed).toBe(true)
     expect(fs.backend.healthy).toBe(true)
-    expect(fs.backend.version).toBe("0.9.31")
-    expect(fs.backend.pinnedVersion).toBe("0.9.31")
+    expect(fs.backend.version).toBe(HEALTH_VERSION)
+    expect(fs.backend.pinnedVersion).toBe(AGENTMEMORY_PINNED_VERSION)
     expect(fs.memory.total).toBe(7)
     expect(fs.memory.namespaces).toEqual([])
   })
@@ -199,12 +203,12 @@ describe("AgentmemoryAdapter (mock server + fake runners)", () => {
   })
 
   test("doctor: flags version mismatch (running server reports other version)", async () => {
-    setHealthVersion("0.9.30")
+    setHealthVersion("0.9.29")
     try {
       const issues = await adapter().doctor()
-      expect(issues.some((i) => i.message.includes("0.9.30") && i.severity === "warn")).toBe(true)
+      expect(issues.some((i) => i.message.includes("0.9.29") && i.severity === "warn")).toBe(true)
     } finally {
-      setHealthVersion("0.9.31")
+      setHealthVersion(AGENTMEMORY_PINNED_VERSION)
     }
   })
 
@@ -220,7 +224,7 @@ describe("AgentmemoryAdapter (mock server + fake runners)", () => {
     const a = new AgentmemoryAdapter({ home, unifyHome, baseUrl: base, runner, nodeRunner, npmRunner })
     await a.install(a.manifest())
     expect(calls).toContainEqual(expect.stringContaining(`npm install`))
-    expect(calls.join("\n")).toContain(`${PKG}@0.9.31`)
+    expect(calls.join("\n")).toContain(`${PKG}@${AGENTMEMORY_PINNED_VERSION}`)
     expect(calls.join("\n")).toContain("init")
   })
 })

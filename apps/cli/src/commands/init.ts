@@ -19,7 +19,7 @@ import {
   SkillshareAdapter,
 } from "../adapters/skillshare"
 import { engineInstallPath } from "../adapters/agentmemory"
-import { AgentmemoryAdapter } from "../adapters/agentmemory"
+import { AGENTMEMORY_PINNED_VERSION, AgentmemoryAdapter } from "../adapters/agentmemory"
 import { AGENTS_MD_TEMPLATE } from "../glue"
 import { readLock, renderSync, writeLastSync, writeLock } from "./state-io"
 
@@ -233,8 +233,19 @@ export const initCommand = defineCommand({
     if (ap.agentmemory.enabled) {
       const am = reg.get("agentmemory") as AgentmemoryAdapter
       let amDet = await am.detect()
-      if (!amDet.installed && !args.skipInstall) {
-        console.log("Installing pinned agentmemory …")
+      // A different version is not good enough: an already-installed one has to
+      // be swapped when the pin moves (0.9.31's Compose layer cannot start a
+      // script container on Windows, so its server never comes up).
+      const wrongVersion = amDet.installed && amDet.version !== AGENTMEMORY_PINNED_VERSION
+      if ((!amDet.installed || wrongVersion) && !args.skipInstall) {
+        if (wrongVersion) {
+          console.log(
+            `agentmemory ${amDet.version} → pinned ${AGENTMEMORY_PINNED_VERSION} (replacing it)`,
+          )
+          await am.stopServer()
+        } else {
+          console.log("Installing pinned agentmemory …")
+        }
         const attempt = await attemptInstall("agentmemory", async () => {
           const amManifest = am.manifest()
           await am.install(amManifest)
