@@ -261,9 +261,21 @@ export async function ensureEngine(opts: EnsureEngineOptions): Promise<EnsureEng
 
   if (await isFile(binPath)) {
     const v = await engineVersion(binPath)
-    if (v) return { installed: false, path: binPath, version: v }
-    // present but not runnable (wrong arch / partial copy) — reinstall below
-    opts.log?.(`existing ${binPath} did not run; reinstalling`)
+    if (v) {
+      // agentmemory requires the pinned version exactly (see
+      // resolveCompatibleIii in its bundle): a runnable but stale binary —
+      // e.g. iii 0.25.0 left over from the agentmemory 0.9.31 era when the
+      // pin is 0.22.1 — is rejected by agentmemory, and on Windows it cannot
+      // auto-install the pinned engine itself, so every start fails the
+      // same way until the stale binary is replaced. Compare the reported
+      // version to the pin, not just "does it run".
+      const reported = v.match(/(\d+\.\d+\.\d+(?:[-+][\w.]+)?)/)?.[1]
+      if (reported === version) return { installed: false, path: binPath, version: v }
+      opts.log?.(`existing ${binPath} reports v${reported ?? "?"} (expected v${version}); reinstalling`)
+    } else {
+      // present but not runnable (wrong arch / partial copy) — reinstall below
+      opts.log?.(`existing ${binPath} did not run; reinstalling`)
+    }
   }
 
   const asset = iiiAssetFor(platform, arch)
