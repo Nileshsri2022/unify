@@ -10,19 +10,9 @@ import {
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Separator } from "@/components/ui/separator"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
-import { StatusBadge, stateLabel } from "@/components/shared"
 import { ago } from "@/lib/api"
 import { useLive } from "@/lib/live"
-import { memoryCaptures, status as mockStatus } from "@/data/mock"
+import { status as mockStatus } from "@/data/mock"
 
 const backendDetail: Record<string, string> = {
   skillshare: "config distribution · 76+ targets",
@@ -124,9 +114,7 @@ export function Overview() {
         />
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-5">
-        {/* backend health */}
-        <div className="flex flex-col gap-4 xl:col-span-2">
+      <div className="flex max-w-2xl flex-col gap-4">
           {s
             ? s.status.backends.map((b) => (
                 <Card key={b.id}>
@@ -206,100 +194,8 @@ export function Overview() {
                 </Card>
               ))}
 
-          {s ? (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Memory namespaces</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col">
-                {s.status.memory.namespaces.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">No memories yet.</p>
-                ) : (
-                  s.status.memory.namespaces.map((n, i) => (
-                    <div key={n.name}>
-                      {i > 0 && <Separator className="my-2" />}
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm">{n.name}</p>
-                        <p className="font-mono text-sm tabular-nums">{n.count}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-                <Button variant="ghost" size="sm" className="mt-2 gap-1 self-start text-muted-foreground" onClick={() => setScreen("memory")}>
-                  search memories
-                  <ArrowUpRight className="size-3.5" />
-                </Button>
-              </CardContent>
-            </Card>
-          ) : (
-            <Card>
-              <CardHeader className="pb-2">
-                <CardTitle className="text-base">Recent memory</CardTitle>
-              </CardHeader>
-              <CardContent className="flex flex-col">
-                {memoryCaptures.slice(0, 3).map((m, i) => (
-                  <div key={m.id}>
-                    {i > 0 && <Separator className="my-2" />}
-                    <p className="line-clamp-2 text-sm">{m.text}</p>
-                    <p className="mt-0.5 text-xs text-muted-foreground">
-                      {m.source} · {m.when}
-                    </p>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-          )}
         </div>
 
-        {/* IDE sync matrix */}
-        <Card>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-base">IDE sync matrix</CardTitle>
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setScreen("sync")}>
-                <RefreshCw className="size-3.5" />
-                Re-sync
-              </Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Tool</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="text-right">{s ? "Path / target" : "Targets"}</TableHead>
-                  <TableHead>Last sync</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {rows.map((t) => (
-                  <TableRow key={t.key}>
-                    <TableCell className="font-medium">{t.tool}</TableCell>
-                    <TableCell>
-                      <StatusBadge state={t.state} />
-                      {t.note && (
-                        <p className="mt-1 max-w-64 truncate text-xs text-muted-foreground">{t.note}</p>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right tabular-nums">
-                      {t.count === null ? "" : t.count}
-                    </TableCell>
-                    <TableCell className="text-muted-foreground">
-                      {t.lastSync ? (s ? ago(t.lastSync) : t.lastSync) : "never"}
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-            <p className="mt-3 text-xs text-muted-foreground">
-              {stateLabel("in-sync")}, {stateLabel("drift")}, {stateLabel("missing")} and{" "}
-              {stateLabel("not-installed")} are computed by adapter status — dry-run first, apply
-              second.
-            </p>
-          </CardContent>
-        </Card>
-      </div>
     </div>
   )
 }
