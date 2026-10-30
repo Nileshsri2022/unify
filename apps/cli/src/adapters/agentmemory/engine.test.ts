@@ -4,7 +4,7 @@ import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
 import os from "node:os"
 import path from "node:path"
-import { BIN, makeTarGz, makeZip } from "../../../test/archives"
+import { BIN, enc, makeTarGz, makeZip } from "../../../test/archives"
 import {
   EngineError,
   III_PINNED_VERSION,
@@ -123,11 +123,38 @@ describe("ensureEngine", () => {
     const dir = path.join(home, ".agentmemory", "bin")
     await mkdir(dir, { recursive: true })
     const bin = path.join(dir, "iii")
-    await writeFile(bin, '#!/bin/sh\necho "iii 0.25.0"\n', { mode: 0o755 })
+    await writeFile(bin, '#!/bin/sh\necho "iii 0.22.1"\n', { mode: 0o755 })
     if (process.platform === "win32") return // posix script only
     const r = await ensureEngine({ home, platform: "linux", arch: "x64" })
     expect(r.installed).toBe(false)
-    expect(r.version).toContain("0.25.0")
+    expect(r.version).toContain(III_PINNED_VERSION)
+  })
+
+  test("existing binary reporting a different version → reinstall pinned version", async () => {
+    // Regression: a stale iii 0.25.0 leftover from the agentmemory 0.9.31 era
+    // used to be kept because ensureEngine only checked "runs", not "is the
+    // pinned version". agentmemory 0.9.30 requires exactly 0.22.1, so that
+    // stale binary made every `unify init` on Windows fail the same way.
+    const home = path.join(root, "stale")
+    const dir = path.join(home, ".agentmemory", "bin")
+    await mkdir(dir, { recursive: true })
+    const bin = path.join(dir, "iii")
+    await writeFile(bin, '#!/bin/sh\necho "iii 0.25.0"\n', { mode: 0o755 })
+    if (process.platform === "win32") return // posix script only
+    const asset = "iii-x86_64-unknown-linux-gnu.tar.gz"
+    const tgz = makeTarGz([{ name: "iii", data: enc('#!/bin/sh\necho "iii 0.22.1"\n') }])
+    await mkdir(path.join(home, "iii", `v${III_PINNED_VERSION}`), { recursive: true })
+    await writeFile(path.join(home, "iii", `v${III_PINNED_VERSION}`, asset), tgz)
+
+    const r = await ensureEngine({
+      home,
+      platform: "linux",
+      arch: "x64",
+      releaseBase: `file://${home}`,
+      checksums: { [asset]: sha(tgz) },
+    })
+    expect(r.installed).toBe(true)
+    expect(r.version).toContain(III_PINNED_VERSION)
   })
 
   test("checksum mismatch → EngineError('checksum'), nothing installed", async () => {
