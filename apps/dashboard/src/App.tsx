@@ -183,7 +183,9 @@ function Shell() {
             <span>
               <strong>Demo mode</strong> — the unify API is offline, so this dashboard shows mock
               data. Start it with <code className="rounded bg-muted px-1">unify ui</code>{" "}
-              <span className="opacity-80">({retryHint}, no reload needed)</span>.
+              <span className="opacity-80">({retryHint}, no reload needed)</span>. On vite dev? Run{" "}
+              <code className="rounded bg-muted px-1">unify ui --api-only</code> so{" "}
+              <code className="rounded bg-muted px-1">/api</code> has something to proxy to.
             </span>
           </div>
         )}
