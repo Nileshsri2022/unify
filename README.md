@@ -27,10 +27,17 @@ bun run build:cli        # → apps/cli/dist/unify
 ./apps/cli/dist/unify version
 ```
 
-Dashboard (mock data until the real API lands):
+Dashboard (live data — served with its JSON API on one local port):
 
 ```bash
-bun run dev:dashboard    # → http://localhost:5173
+./apps/cli/dist/unify ui              # → http://127.0.0.1:7420 (dashboard + /api)
+```
+
+Dev workflow (hot reload + API-only backend):
+
+```bash
+./apps/cli/dist/unify ui --api-only   # JSON API only on :7420
+bun run dev:dashboard                 # vite dev on :5173, proxies /api → :7420
 ```
 
 ## Commands
@@ -41,11 +48,35 @@ unify init [--yes] [--skip-install]   detect AI tools, install pinned skillshare
 unify status [--json]                 backend health + per-target sync matrix
 unify sync [--dry-run] [--target t]   sync skills to targets
 unify doctor                          backend health + config issues
+unify memory save <text> [--concepts a,b]
+                                      memory recall <query> [--limit n]
+unify profile [name]                  show active profile, or switch (work/personal)
+unify ui [--port n] [--api-only]      serve dashboard + JSON API on 127.0.0.1
 unify version                         print version
 ```
 
 State lives in `~/.unify` (override with `$UNIFY_HOME`). The skillshare binary
 is pinned + SHA256-verified under `~/.unify/backends/skillshare`.
+
+## Dashboard & JSON API
+
+`unify ui` serves the dashboard **and** its JSON API on one 127.0.0.1 port
+(default 7420, `$UNIFY_UI_PORT` / `--port`). The UI and CLI share the same
+orchestrator, so what you see is what the CLI reports.
+
+| Endpoint | Method | Purpose |
+| --- | --- | --- |
+| `/api/status` | GET | backends, targets, memory, lastSync |
+| `/api/doctor` | GET | cross-backend issues |
+| `/api/profiles` | GET / POST | list / switch active profile |
+| `/api/memory` | GET `?q=&limit=&profile=` | scoped recall (profile override for tabs) |
+| `/api/memory` | POST `{text, concepts?}` | save to active profile |
+| `/api/sync` | POST `{dryRun, target?}` | dry-run / apply (+ glue lines) |
+
+Profile memory is isolated end-to-end: each profile is an agentmemory
+`agentId` namespace, so work recall never surfaces personal memories and
+vice-versa. If the API is unreachable the dashboard falls back to demo data
+with a visible banner — never silently.
 
 ## Layout
 
@@ -60,9 +91,9 @@ docs/             DESIGN.md, PROGRESS.md, plans/
 
 - [x] M0 — scaffold, core types, config loader, CLI skeleton
 - [x] M1 — skillshare adapter (init / sync / status / doctor), pinned v0.28.0
-- [ ] M2 — agentmemory adapter (MCP)
-- [ ] M3 — profiles + glue workflows
-- [ ] M4 — Stitch → shadcn dashboard refinement
-- [ ] M5 — `unify ui` wiring + first release
+- [x] M2 — agentmemory adapter (REST), pinned v0.9.31
+- [x] M3 — profiles (work/personal) + post-sync glue
+- [ ] M4 — Stitch → shadcn dashboard refinement (blocked on API key)
+- [x] M5 — `unify ui` dashboard + JSON API, local-first
 
 See `docs/DESIGN.md` for the full design and `docs/PROGRESS.md` for stage status.

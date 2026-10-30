@@ -51,6 +51,8 @@ export interface AgentmemoryAdapterDeps {
   nodeRunner?: Runner
   /** Runner for `npm install` (tests inject a fake). */
   npmRunner?: Runner
+  /** Extra env for the spawned server supervisor (tests: STUB_PORT etc.). */
+  serverEnv?: Record<string, string>
   /** Override for tests (defaults to live REST calls). */
   client?: MemoryClient
 }
@@ -101,6 +103,7 @@ export class AgentmemoryAdapter implements BackendAdapter {
       home: this.d.home,
       baseUrl: this.base,
       logFile: path.join(this.d.unifyHome, "state", "agentmemory-server.log"),
+      env: this.d.serverEnv,
     })
   }
 

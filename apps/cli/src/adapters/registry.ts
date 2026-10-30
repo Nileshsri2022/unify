@@ -30,6 +30,8 @@ export interface BuildRegistryOptions {
   agentmemoryRunner?: Runner
   agentmemoryNodeRunner?: Runner
   agentmemoryNpmRunner?: Runner
+  /** Extra env for the spawned memory server (tests: STUB_PORT etc.). */
+  agentmemoryServerEnv?: Record<string, string>
 }
 
 /**
@@ -62,6 +64,7 @@ export async function buildRegistry(
       runner: opts.agentmemoryRunner ?? realRunner(agentmemoryCliPath(unifyHome)),
       nodeRunner: opts.agentmemoryNodeRunner,
       npmRunner: opts.agentmemoryNpmRunner,
+      serverEnv: opts.agentmemoryServerEnv,
     }),
   )
 

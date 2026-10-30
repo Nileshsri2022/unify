@@ -1,11 +1,13 @@
 import {
-  Brain,
   ChevronDown,
   GitCompareArrows,
   LayoutDashboard,
+  Brain,
   RefreshCw,
   Stethoscope,
   UserRound,
+  Search,
+  WifiOff,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import {
@@ -13,30 +15,24 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
-import {
-  Input,
-} from "@/components/ui/input"
+import { Input } from "@/components/ui/input"
 import { Doctor } from "@/screens/Doctor"
 import { Memory } from "@/screens/Memory"
 import { Overview } from "@/screens/Overview"
 import { ProfileScreen } from "@/screens/Profile"
 import { Sync } from "@/screens/Sync"
 import { cn } from "@/lib/utils"
-import { Search } from "lucide-react"
-import { useState } from "react"
+import { LiveProvider, useLive, type ScreenId } from "@/lib/live"
 
-const nav = [
+const nav: { id: ScreenId; label: string; icon: typeof Brain }[] = [
   { id: "overview", label: "Overview", icon: LayoutDashboard },
   { id: "sync", label: "Sync", icon: GitCompareArrows },
   { id: "memory", label: "Memory", icon: Brain },
   { id: "profile", label: "Profiles", icon: UserRound },
   { id: "doctor", label: "Doctor", icon: Stethoscope },
-] as const
-
-type ScreenId = (typeof nav)[number]["id"]
+]
 
 const titles: Record<ScreenId, { title: string; sub: string }> = {
   overview: { title: "Overview", sub: "Your AI agent stack at a glance" },
@@ -46,8 +42,15 @@ const titles: Record<ScreenId, { title: string; sub: string }> = {
   doctor: { title: "Doctor", sub: "Health of the whole stack" },
 }
 
-export default function App() {
-  const [screen, setScreen] = useState<ScreenId>("overview")
+function Shell() {
+  const { online, status, profiles, screen, setScreen, search, setSearch, switchProfile } = useLive()
+  const live = online === true
+
+  const onSearch = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "Enter" && search.trim()) {
+      setScreen("memory")
+    }
+  }
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -85,10 +88,24 @@ export default function App() {
         </nav>
         <div className="border-t px-4 py-3 text-[11px] text-muted-foreground">
           <p className="flex items-center gap-1.5">
-            <span className="size-1.5 rounded-full bg-emerald-500" />
-            2 backends healthy
+            {online === null ? (
+              <>
+                <span className="size-1.5 animate-pulse rounded-full bg-amber-500" />
+                checking API…
+              </>
+            ) : live ? (
+              <>
+                <span className="size-1.5 rounded-full bg-emerald-500" />
+                live · {status?.status.profile ?? "…"} profile
+              </>
+            ) : (
+              <>
+                <span className="size-1.5 rounded-full bg-amber-500" />
+                demo mode (API offline)
+              </>
+            )}
           </p>
-          <p className="mt-1">unify v0.1.0 · mock data</p>
+          <p className="mt-1">unify v0.2.0</p>
         </div>
       </aside>
 
@@ -97,41 +114,67 @@ export default function App() {
         {/* topbar */}
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b bg-background/80 px-6 py-3 backdrop-blur">
           <div>
-            <h1 className="font-heading text-lg font-semibold leading-tight">
-              {titles[screen].title}
-            </h1>
+            <h1 className="font-heading text-lg font-semibold leading-tight">{titles[screen].title}</h1>
             <p className="text-xs text-muted-foreground">{titles[screen].sub}</p>
           </div>
           <div className="flex items-center gap-3">
             <div className="relative hidden md:block">
               <Search className="absolute left-2.5 top-2.5 size-4 text-muted-foreground" />
-              <Input placeholder="Search targets, memories…" className="h-9 w-64 pl-8" />
+              <Input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                onKeyDown={onSearch}
+                placeholder="Search memories… (Enter)"
+                className="h-9 w-64 pl-8"
+              />
             </div>
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <UserRound className="size-3.5" />
-                  work
-                  <ChevronDown className="size-3.5 opacity-60" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-44">
-                <DropdownMenuLabel>Profiles</DropdownMenuLabel>
-                <DropdownMenuItem className="font-medium">
-                  <span className="mr-2 inline-block size-1.5 rounded-full bg-emerald-500" />
-                  work
-                </DropdownMenuItem>
-                <DropdownMenuItem>personal</DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem>New profile…</DropdownMenuItem>
-              </DropdownMenuContent>
-            </DropdownMenu>
-            <Button variant="outline" size="sm" className="gap-1.5">
+            {live && profiles && (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-1.5">
+                    <UserRound className="size-3.5" />
+                    {profiles.active}
+                    <ChevronDown className="size-3.5 opacity-60" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-44">
+                  <DropdownMenuLabel>Profiles</DropdownMenuLabel>
+                  {profiles.profiles.map((p) => (
+                    <DropdownMenuItem
+                      key={p.name}
+                      className={p.active ? "font-medium" : ""}
+                      onClick={() => void switchProfile(p.name)}
+                    >
+                      <span
+                        className={cn(
+                          "mr-2 inline-block size-1.5 rounded-full",
+                          p.active ? "bg-emerald-500" : "bg-transparent ring-1 ring-muted-foreground/40",
+                        )}
+                      />
+                      {p.name}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            )}
+            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setScreen("sync")}>
               <RefreshCw className="size-3.5" />
               Sync
             </Button>
           </div>
         </header>
+
+        {/* demo banner */}
+        {online === false && (
+          <div className="flex items-center gap-2 border-b bg-amber-500/10 px-6 py-2 text-xs text-amber-800 dark:text-amber-300">
+            <WifiOff className="size-3.5" />
+            <span>
+              <strong>Demo mode</strong> — the unify API is offline, so this dashboard shows mock
+              data. Start it with <code className="rounded bg-muted px-1">unify ui</code> (then
+              reload).
+            </span>
+          </div>
+        )}
 
         <main className="px-6 py-5">
           {screen === "overview" && <Overview />}
@@ -142,5 +185,13 @@ export default function App() {
         </main>
       </div>
     </div>
+  )
+}
+
+export default function App() {
+  return (
+    <LiveProvider>
+      <Shell />
+    </LiveProvider>
   )
 }
