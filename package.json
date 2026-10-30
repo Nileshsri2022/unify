@@ -1,0 +1,19 @@
+{
+  "name": "unify",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p apps/dashboard/tsconfig.app.json --noEmit && tsc -p packages/core/tsconfig.json && tsc -p apps/cli/tsconfig.json",
+    "test": "bun test packages/core apps/cli",
+    "build:cli": "bun run --cwd apps/cli build",
+    "build:dashboard": "bun run --cwd apps/dashboard build",
+    "dev:dashboard": "bun run --cwd apps/dashboard dev"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.8.0"
+  }
+}

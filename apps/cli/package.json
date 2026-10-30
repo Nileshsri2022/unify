@@ -1,0 +1,19 @@
+{
+  "name": "@unify/cli",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "unify": "dist/unify"
+  },
+  "scripts": {
+    "build": "bun build src/index.ts --compile --outfile dist/unify"
+  },
+  "dependencies": {
+    "@unify/core": "workspace:*",
+    "citty": "^0.1.6"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "bun-types": "^1.4.4"
+  }
+}

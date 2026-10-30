@@ -1,0 +1,24 @@
+version: 1
+profile: work
+profiles:
+  work:
+    backends:
+      skillshare:
+        enabled: true
+        targets: [claude, cursor, codex]
+      agentmemory:
+        enabled: true
+        namespace: work
+  personal:
+    backends:
+      skillshare:
+        enabled: true
+        targets: [claude]
+      agentmemory:
+        enabled: true
+        namespace: personal
+glue:
+  post-sync: [inject-agents-md-into-memory]
+secrets:
+  STITCH_API_KEY:
+    env: STITCH_API_KEY

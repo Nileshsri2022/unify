@@ -1,0 +1,15 @@
+[
+  {
+    "name": "code-review",
+    "kind": "skill",
+    "relPath": "code-review"
+  },
+  {
+    "name": "skillshare",
+    "kind": "skill",
+    "relPath": "skillshare",
+    "source": "github.com/runkids/skillshare/skills/skillshare",
+    "type": "github-subdir",
+    "installedAt": "2026-10-30"
+  }
+]

@@ -1,0 +1,35 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  cli-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: unit tests (core + cli)
+        run: bun test packages/core apps/cli
+      - name: build binary
+        run: bun run build:cli
+      - name: smoke: unify version
+        run: ./apps/cli/dist/unify version
+
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - name: typecheck
+        run: bun run typecheck
+      - name: build
+        run: bun run build:dashboard

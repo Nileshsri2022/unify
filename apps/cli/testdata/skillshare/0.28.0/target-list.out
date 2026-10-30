@@ -1,0 +1,12 @@
+claude
+  Skills    ~/.claude/skills  merge · flat · merged · 1 shared
+  Agents    ~/.claude/agents  merge · no source agents yet
+
+gemini
+  Skills    ~/.gemini/skills  merge · flat · merged · 1 shared
+
+universal
+  Skills    ~/.agents/skills  merge · flat · merged · 1 shared
+
+3 targets
+

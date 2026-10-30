@@ -1,0 +1,50 @@
+{
+  "targets": 3,
+  "linked": 6,
+  "local": 0,
+  "updated": 0,
+  "pruned": 0,
+  "ignored_count": 0,
+  "ignored_skills": [],
+  "dry_run": true,
+  "duration": "4ms",
+  "details": [
+    {
+      "name": "claude",
+      "mode": "merge",
+      "linked": 2,
+      "local": 0,
+      "updated": 0,
+      "pruned": 0
+    },
+    {
+      "name": "gemini",
+      "mode": "merge",
+      "linked": 2,
+      "local": 0,
+      "updated": 0,
+      "pruned": 0
+    },
+    {
+      "name": "universal",
+      "mode": "merge",
+      "linked": 2,
+      "local": 0,
+      "updated": 0,
+      "pruned": 0
+    }
+  ],
+  "context_cost": {
+    "groups": [
+      {
+        "targets": [
+          "claude",
+          "gemini",
+          "universal"
+        ],
+        "always_loaded_tokens": 144,
+        "on_demand_tokens": 2714
+      }
+    ]
+  }
+}
