@@ -7,10 +7,14 @@
  * iii-engine, so the default timeout is generous (180s).
  */
 
-import { openSync, readFileSync, statSync } from "node:fs"
+import { existsSync, openSync, readFileSync, statSync } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import path from "node:path"
-import { agentmemoryArgv } from "./command"
+import {
+  agentmemoryArgv,
+  agentmemoryComposeLogCandidates,
+  agentmemoryEngineStateFile,
+} from "./command"
 
 export async function probe(baseUrl: string, timeoutMs = 3000): Promise<boolean> {
   const base = baseUrl.replace(/\/$/, "")
@@ -41,6 +45,58 @@ export interface EnsureRunningOptions {
   readyTimeoutMs?: number
   /** Extra env for the spawned process (tests). */
   env?: Record<string, string>
+}
+
+/**
+ * Attach the Compose daemon log when the supervisor died trying to start its
+ * project. Only read when the log mentions Compose at all, so an engine or
+ * port problem does not grow an unrelated block.
+ */
+function withCompose(
+  message: string,
+  opts: { home: string; baseUrl: string; env?: Record<string, string> },
+): string {
+  if (!/compose|PROJECT_DID_NOT_START|did not start/i.test(message)) return message
+  const found = findComposeLog(opts)
+  if (!found) return message
+  const lines = composeFailureLines(found.path)
+  if (lines.length === 0) return message
+  return withSection(message, `compose log (${found.path.replace(/\\/g, "/")})`, lines)
+}
+
+/**
+ * Locate the Compose daemon log the way agentmemory does: engine-state.json
+ * records the exact file it started `iii compose` with; the conventional names
+ * are fallbacks for a state file that is missing or stale.
+ */
+export function findComposeLog(opts: {
+  home: string
+  baseUrl: string
+  env?: Record<string, string>
+}): { path: string; from: "state" | "convention" } | null {
+  const env = { ...process.env, ...(opts.env ?? {}) }
+  const restPort = Number(new URL(opts.baseUrl).port) || 3111
+
+  // 1. agentmemory's own record
+  try {
+    const state = JSON.parse(readFileSync(agentmemoryEngineStateFile({ home: opts.home, env }), "utf8"))
+    const logFile = typeof state?.logFile === "string" ? state.logFile : ""
+    if (logFile && existsSync(logFile) && statSync(logFile).size > 0) {
+      return { path: logFile, from: "state" }
+    }
+  } catch {
+    /* no state file, unreadable, or not compose */
+  }
+
+  // 2. conventional locations
+  for (const candidate of agentmemoryComposeLogCandidates({ home: opts.home, restPort, env })) {
+    try {
+      if (existsSync(candidate) && statSync(candidate).size > 0) return { path: candidate, from: "convention" }
+    } catch {
+      /* keep looking */
+    }
+  }
+  return null
 }
 
 export async function ensureRunning(
@@ -101,9 +157,12 @@ export async function ensureRunning(
       ])
       if (dead && !(await probe(opts.baseUrl))) {
         throw new Error(
-          withTrace(
-            `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
-            engineTrace(opts.logFile, logOffset),
+          withCompose(
+            withTrace(
+              `agentmemory exited before it was ready (exit ${dead.code}). Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
+              engineTrace(opts.logFile, logOffset),
+            ),
+            opts,
           ),
         )
       }
@@ -114,9 +173,12 @@ export async function ensureRunning(
       if (fatal) {
         const line = fatal.replace(/[.\s]+$/, "")
         throw new Error(
-          withTrace(
-            `agentmemory cannot start: ${line}. Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
-            engineTrace(opts.logFile, logOffset),
+          withCompose(
+            withTrace(
+              `agentmemory cannot start: ${line}. Log tail:\n${tailOf(opts.logFile, 10, logOffset)}`,
+              engineTrace(opts.logFile, logOffset),
+            ),
+            opts,
           ),
         )
       }
@@ -182,6 +244,33 @@ export function fatalEngineLine(logFile: string, offset = 0): string | null {
  * agentmemory only prints these with --verbose (which unify turns on), and
  * they are the only evidence of why it rejected an engine we believe is fine.
  */
+/**
+ * The Compose daemon's last meaningful lines. When the engine is accepted but
+ * the project does not start, this holds the worker's actual error — the one
+ * thing agentmemory's "Compose exited with code 1" never shows.
+ */
+export function composeFailureLines(logFile: string, max = 8): string[] {
+  let text = ""
+  try {
+    text = readFileSync(logFile, "utf8")
+  } catch {
+    return []
+  }
+  const noise = /^\s*$|\bdownloading\b|\bprogress\b|^\s*[│|]|\u001b\[/i
+  const lines: string[] = []
+  for (const raw of text.split("\n")) {
+    const line = raw.replace(/\u001b\[[0-9;]*m/g, "").trimEnd()
+    if (noise.test(line)) continue
+    lines.push(line.trim())
+  }
+  return lines.slice(-max)
+}
+
+/** Append a labelled block to a failure message. */
+function withSection(message: string, label: string, lines: string[]): string {
+  return (lines.length ? `${message}\n${label}:\n${lines.join("\n")}` : message).trim()
+}
+
 /** Append agentmemory's engine-discovery lines to a failure message. */
 function withTrace(message: string, trace: string[]): string {
   return (trace.length ? `${message}\nengine trace:\n${trace.join("\n")}` : message).trim()

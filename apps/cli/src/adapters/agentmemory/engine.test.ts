@@ -7,6 +7,7 @@ import path from "node:path"
 import { BIN, makeTarGz, makeZip } from "../../../test/archives"
 import {
   EngineError,
+  III_PINNED_VERSION,
   III_RELEASE_SHA256,
   describeProbeFailure,
   ensureEngine,
@@ -64,15 +65,16 @@ describe("iii asset naming (mirrors agentmemory)", () => {
 
   test("release URL is the pinned versioned asset", () => {
     expect(iiiReleaseUrl("iii-x86_64-pc-windows-msvc.zip")).toBe(
-      "https://github.com/iii-hq/iii/releases/download/iii/v0.25.0/iii-x86_64-pc-windows-msvc.zip",
+      `https://github.com/iii-hq/iii/releases/download/iii/v${III_PINNED_VERSION}/iii-x86_64-pc-windows-msvc.zip`,
     )
   })
 
-  test("the pin table covers agentmemory's checksums for v0.25.0", () => {
-    const table = III_RELEASE_SHA256["0.25.0"]
+  test("the pin table covers agentmemory's checksums for the pinned engine", () => {
+    const table = III_RELEASE_SHA256[III_PINNED_VERSION]
     expect(Object.keys(table)).toHaveLength(7)
+    // the hash agentmemory 0.9.30 ships for its pinned engine
     expect(table["iii-x86_64-pc-windows-msvc.zip"]).toBe(
-      "b80ea5c3408879380b6ce95f7b2855ce161d68642aeec8f7b54f104794cbb322",
+      "d862bf7cf1e864f3290c8a6fc17c308c6ecac097cb2666e4a739efc0040aae96",
     )
   })
 })
@@ -83,8 +85,8 @@ describe("ensureEngine", () => {
     const asset = "iii-x86_64-pc-windows-msvc.zip"
     const zip = makeZip([{ name: "iii.exe", data: BIN }])
     // mirrors the release layout the URL builder produces: <base>/iii/v<ver>/<asset>
-    await mkdir(path.join(home, "iii", "v0.25.0"), { recursive: true })
-    await writeFile(path.join(home, "iii", "v0.25.0", asset), zip)
+    await mkdir(path.join(home, "iii", `v${III_PINNED_VERSION}`), { recursive: true })
+    await writeFile(path.join(home, "iii", `v${III_PINNED_VERSION}`, asset), zip)
 
     const r = await ensureEngine({
       home,
@@ -102,8 +104,8 @@ describe("ensureEngine", () => {
     const home = path.join(root, "linux")
     const asset = "iii-x86_64-unknown-linux-gnu.tar.gz"
     const tgz = makeTarGz([{ name: "iii", data: BIN }])
-    await mkdir(path.join(home, "iii", "v0.25.0"), { recursive: true })
-    await writeFile(path.join(home, "iii", "v0.25.0", asset), tgz)
+    await mkdir(path.join(home, "iii", `v${III_PINNED_VERSION}`), { recursive: true })
+    await writeFile(path.join(home, "iii", `v${III_PINNED_VERSION}`, asset), tgz)
 
     const r = await ensureEngine({
       home,
@@ -131,8 +133,8 @@ describe("ensureEngine", () => {
   test("checksum mismatch → EngineError('checksum'), nothing installed", async () => {
     const home = path.join(root, "bad-slash")
     const asset = "iii-x86_64-pc-windows-msvc.zip"
-    await mkdir(path.join(home, "iii", "v0.25.0"), { recursive: true })
-    await writeFile(path.join(home, "iii", "v0.25.0", asset), makeZip([{ name: "iii.exe", data: BIN }]))
+    await mkdir(path.join(home, "iii", `v${III_PINNED_VERSION}`), { recursive: true })
+    await writeFile(path.join(home, "iii", `v${III_PINNED_VERSION}`, asset), makeZip([{ name: "iii.exe", data: BIN }]))
     await expect(
       ensureEngine({
         home,
@@ -164,8 +166,8 @@ describe("ensureEngine", () => {
     const home = path.join(root, "wrong-member")
     const asset = "iii-x86_64-pc-windows-msvc.zip"
     const zip = makeZip([{ name: "README.md", data: BIN }])
-    await mkdir(path.join(home, "iii", "v0.25.0"), { recursive: true })
-    await writeFile(path.join(home, "iii", "v0.25.0", asset), zip)
+    await mkdir(path.join(home, "iii", `v${III_PINNED_VERSION}`), { recursive: true })
+    await writeFile(path.join(home, "iii", `v${III_PINNED_VERSION}`, asset), zip)
     const err = await ensureEngine({
       home,
       platform: "win32",

@@ -18,8 +18,16 @@ import { realRunner } from "../runner"
  *         → ~/.agentmemory/bin/iii(.exe)  ← where agentmemory looks first
  */
 
-/** Default pinned engine version — must match the agentmemory release we pin. */
-export const III_PINNED_VERSION = "0.25.0"
+/**
+ * Default pinned engine version — must match the agentmemory release we pin.
+ *
+ * 0.22.1 is the engine agentmemory 0.9.30 expects. We pin that release rather
+ * than 0.9.31 because 0.9.31 starts its workers through `iii compose`, whose
+ * Windows shell handling cannot run a script container (it passes the script
+ * through Command::args, Rust escapes the quotes, and cmd.exe fails with
+ * "The network path was not found."). 0.9.30 has no Compose layer.
+ */
+export const III_PINNED_VERSION = "0.22.1"
 
 /**
  * SHA-256 pins per release asset, copied from `III_RELEASE_SHA256` in
@@ -27,6 +35,22 @@ export const III_PINNED_VERSION = "0.25.0"
  * agentmemory's own integrity check.
  */
 export const III_RELEASE_SHA256: Record<string, Record<string, string>> = {
+  // agentmemory 0.9.30's table — the pin we ship.
+  "0.22.1": {
+    "iii-aarch64-apple-darwin.tar.gz": "2b309019b909a896cae874dc947e2cdf877b4f3c51dd026b79850af858517fa4",
+    "iii-x86_64-apple-darwin.tar.gz": "6d33940db2d3ad6a9aef9837aa5b89bf5c5e4acd0679e8178fec258af229d7e1",
+    "iii-x86_64-unknown-linux-gnu.tar.gz":
+      "34d4bd2ec1873e6114bb836be7db9cb3f410d0d63353d240917f0bc9c30df13b",
+    "iii-aarch64-unknown-linux-gnu.tar.gz":
+      "87efc60210c1580ef2e11b13c679a4dad91917a9d80f737c5ba7e3475b3ca413",
+    "iii-armv7-unknown-linux-gnueabihf.tar.gz":
+      "af5dfc45149678c647e5adaca55c055428eebfa73d65884b052c30c98abcfd19",
+    "iii-x86_64-pc-windows-msvc.zip":
+      "d862bf7cf1e864f3290c8a6fc17c308c6ecac097cb2666e4a739efc0040aae96",
+    "iii-aarch64-pc-windows-msvc.zip":
+      "4777a48cee3fc1a742daee929e3d943df09e4ddd3357d27a33d31c9dc9e520ac",
+  },
+  // agentmemory 0.9.31's table — kept so a 0.9.31 tree can still be verified.
   "0.25.0": {
     "iii-aarch64-apple-darwin.tar.gz": "5f23087a41ce1cf86f9859d2f430d1809a1e048094e69b1df0cdf1ebefc2a985",
     "iii-x86_64-apple-darwin.tar.gz": "e2ac4ef109ddbf459b4683171c6b5b9c8366b16dac2e1f8c4fe08b4a4e19d49a",

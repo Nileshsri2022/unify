@@ -20,7 +20,7 @@ import {
   type MemoryClient,
   type RecallResult,
 } from "./client"
-import { ensureRunning, probe } from "./server"
+import { ensureRunning, probe, stop } from "./server"
 import { agentmemoryArgv, agentmemoryEntryPath } from "./command"
 import {
   describeProbeFailure,
@@ -30,7 +30,20 @@ import {
   probeEngineAsAgentmemory,
 } from "./engine"
 
-export const AGENTMEMORY_PINNED_VERSION = "0.9.31"
+/**
+ * 0.9.30, not 0.9.31.
+ *
+ * 0.9.31 replaced the native engine start with `iii compose` and runs the
+ * agentmemory worker as a *script* container:
+ *   scripts.run: '""C:\Program Files\nodejs\node.exe" "dist/index.mjs""'
+ * iii-compose spawns it as `cmd /C <that string>` through Rust's Command::args,
+ * which escapes the quotes as \" — cmd cannot parse that and dies with
+ * "The network path was not found.", so the container never registers and the
+ * project reports PROJECT_DID_NOT_START (reproduced on Windows 2026-10-30).
+ * 0.9.30 predates Compose: it renders an engine config and the engine spawns
+ * the worker directly (program + args, no shell), which is Windows-safe.
+ */
+export const AGENTMEMORY_PINNED_VERSION = "0.9.30"
 export const AGENTMEMORY_NPM_PACKAGE = "@agentmemory/agentmemory"
 export const DEFAULT_AGENTMEMORY_BASE = "http://localhost:3111"
 
@@ -208,6 +221,20 @@ export class AgentmemoryAdapter implements BackendAdapter {
         `iii-engine is required by agentmemory but could not be installed: ${detail}`,
         { cause: e },
       )
+    }
+  }
+
+  /** Stop the supervisor (used before swapping versions). Best effort. */
+  async stopServer(): Promise<void> {
+    try {
+      await stop(
+        agentmemoryCliPath(this.d.unifyHome),
+        this.d.home,
+        this.d.serverEnv ?? {},
+        agentmemoryEntryPath(this.d.unifyHome),
+      )
+    } catch {
+      /* nothing running */
     }
   }
 
