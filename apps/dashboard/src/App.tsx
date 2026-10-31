@@ -65,8 +65,8 @@ function Shell() {
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
-      {/* sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-10 flex w-56 flex-col border-r">
+      {/* sidebar — desktop only; mobile gets the bottom nav below */}
+      <aside className="fixed inset-y-0 left-0 z-10 hidden w-56 flex-col border-r md:flex">
         <div className="flex items-center gap-2 px-4 py-4">
           <div className="flex size-7 items-center justify-center rounded-md bg-primary font-heading text-sm font-bold text-primary-foreground">
             u
@@ -126,7 +126,7 @@ function Shell() {
       </aside>
 
       {/* main */}
-      <div className="ml-56 flex-1">
+      <div className="flex-1 md:ml-56">
         {/* topbar */}
         <header className="sticky top-0 z-10 flex items-center justify-between gap-4 border-b bg-background/80 px-6 py-3 backdrop-blur">
           <div>
@@ -173,9 +173,9 @@ function Shell() {
                 </DropdownMenuContent>
               </DropdownMenu>
             )}
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setScreen("sync")}>
+            <Button size="sm" className="gap-1.5" onClick={() => setScreen("hub")}>
               <RefreshCw className="size-3.5" />
-              Sync
+              Sync Everything
             </Button>
           </div>
         </header>
@@ -209,7 +209,7 @@ function Shell() {
           </div>
         )}
 
-        <main className="px-6 py-5">
+        <main className="mx-auto w-full max-w-6xl px-4 pb-24 pt-5 md:px-8 md:py-6 md:pb-6">
           {screen === "overview" && <Overview />}
           {screen === "hub" && <Hub />}
           {screen === "sync" && <Sync />}
@@ -218,6 +218,27 @@ function Shell() {
           {screen === "doctor" && <Doctor />}
         </main>
       </div>
+
+      {/* bottom nav — mobile only, same screens as the sidebar */}
+      <nav className="fixed inset-x-0 bottom-0 z-10 flex border-t bg-background md:hidden">
+        {nav.map((item) => {
+          const Icon = item.icon
+          const active = screen === item.id
+          return (
+            <button
+              key={item.id}
+              onClick={() => setScreen(item.id)}
+              className={cn(
+                "flex min-h-11 flex-1 flex-col items-center justify-center gap-0.5 py-2 text-[11px]",
+                active ? "font-medium text-foreground" : "text-muted-foreground",
+              )}
+            >
+              <Icon className="size-4" />
+              {item.label}
+            </button>
+          )
+        })}
+      </nav>
     </div>
   )
 }

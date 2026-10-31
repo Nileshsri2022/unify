@@ -33,13 +33,13 @@ function StatTile({
 }) {
   return (
     <Card>
-      <CardContent className="flex items-center gap-4 p-4">
+      <CardContent className="flex items-center gap-4 p-5">
         <div className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted">
           <Icon className="size-5" />
         </div>
         <div className="min-w-0">
           <p className="text-xs text-muted-foreground">{label}</p>
-          <p className="truncate font-heading text-lg font-semibold">{value}</p>
+          <p className="truncate font-heading text-xl font-semibold">{value}</p>
           <p className="truncate text-xs text-muted-foreground">{hint}</p>
         </div>
       </CardContent>
