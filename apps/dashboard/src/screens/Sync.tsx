@@ -11,7 +11,7 @@ import {
   TableRow,
 } from "@/components/ui/table"
 import { StatusBadge } from "@/components/shared"
-import { ago, api, ApiError, type SyncResponse } from "@/lib/api"
+import { api, ApiError, type SyncResponse } from "@/lib/api"
 import { useLive } from "@/lib/live"
 import { dryRunChanges as mockChanges, status as mockStatus } from "@/data/mock"
 import { useState } from "react"
@@ -24,13 +24,17 @@ export function Sync() {
   const [result, setResult] = useState<SyncResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // VELTO redesign: the old "Last sync" column was never populated
+  // (skillshare fullStatus() never sets TargetRow.lastSync), so it
+  // always rendered "never". It is replaced by the target's detail,
+  // which the API does populate ("N skill(s) linked", etc.).
   const rows = live
     ? status!.status.targets.map((t) => ({
         key: t.target,
         target: t.target,
         tool: t.tool,
         state: t.state,
-        lastSync: t.lastSync,
+        detail: t.detail ?? "",
       }))
     : mockStatus.targets
         .filter((t) => t.state !== "not-installed")
@@ -39,7 +43,7 @@ export function Sync() {
           target: "",
           tool: t.tool,
           state: t.state,
-          lastSync: t.lastSync as string,
+          detail: t.note,
         }))
 
   const run = async (opts: { dry: boolean; target?: string }) => {
@@ -108,7 +112,7 @@ export function Sync() {
               <TableRow>
                 <TableHead>Tool</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead>Last sync</TableHead>
+                <TableHead>Detail</TableHead>
                 {live && <TableHead className="w-24" />}
               </TableRow>
             </TableHeader>
@@ -119,9 +123,7 @@ export function Sync() {
                   <TableCell>
                     <StatusBadge state={t.state} />
                   </TableCell>
-                  <TableCell className="text-muted-foreground">
-                    {t.lastSync ? (live ? ago(t.lastSync) : t.lastSync) : "never"}
-                  </TableCell>
+                  <TableCell className="text-muted-foreground">{t.detail || "—"}</TableCell>
                   {live && (
                     <TableCell className="text-right">
                       {t.state === "drift" || t.state === "missing" ? (
